@@ -1,15 +1,17 @@
-use crate::{
-    command_executor::{
-        Command, CommandContext, CommandGroup, CommandGroupMetadata, CommandMetadata,
-        CommandParams, DynamicCompletionType,
-    },
-    commands::{
-        ledger::{handle_transaction_response, Response},
-        *,
-    },
-    tools::{did::Did, ledger::Ledger},
-    utils::table::print_list_table,
+use crate::command_executor::{
+    Command, CommandContext, CommandGroup, CommandGroupMetadata, CommandMetadata, CommandParams,
+    DynamicCompletionType,
 };
+use crate::commands::*;
+use crate::utils::table::print_list_table;
+
+use crate::tools::did::Did;
+use crate::tools::ledger::Ledger;
+
+use serde_json::Value as JSONValue;
+use std::fs::File;
+
+use crate::commands::ledger::{handle_transaction_response, Response};
 
 pub mod group {
     use super::*;
@@ -41,7 +43,7 @@ pub mod new_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let store = ensure_opened_store(&ctx)?;
 
         let did = get_opt_str_param("did", params).map_err(error_err!())?;
         let seed = get_opt_str_param("seed", params).map_err(error_err!())?;
@@ -56,43 +58,10 @@ pub mod new_command {
 
         println_succ!("Did \"{}\" has been created with \"{}\" verkey", did, vk);
 
-        // if let Some(metadata) = metadata {
-        //     Did::set_metadata(&store, &did, metadata)
-        //         .map_err(|err| println_err!("{}", err.message(None)))?;
-        // }
-
-        trace!("execute <<");
-        Ok(())
-    }
-}
-
-pub mod set_metadata_command {
-    use super::*;
-
-    command!(CommandMetadata::build(
-        "set-metadata",
-        "Updated metadata for a DID in the wallet."
-    )
-    .add_required_param_with_dynamic_completion(
-        "did",
-        "Did stored in wallet",
-        DynamicCompletionType::Did
-    )
-    .add_required_param("metadata", "Metadata to set.")
-    .add_example(r#"did set-metadata did=VsKV7grR1BUE29mG2Fm2kX metadata={"label":"Main"}"#)
-    .finalize());
-
-    fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
-        trace!("execute >> ctx {:?}, params {:?}", ctx, params);
-
-        let wallet = ensure_opened_wallet(ctx)?;
-        let did = get_did_param("did", params).map_err(error_err!())?;
-        let metadata = get_str_param("metadata", params).map_err(error_err!())?;
-
-        Did::set_metadata(&wallet, &did, metadata)
-            .map_err(|err| println_err!("{}", err.message(None)))?;
-
-        println_succ!("DID Metadata updated");
+        if let Some(metadata) = metadata {
+            Did::set_metadata(&store, &did, metadata)
+                .map_err(|err| println_err!("{}", err.message(None)))?;
+        }
 
         trace!("execute <<");
         Ok(())
@@ -101,19 +70,7 @@ pub mod set_metadata_command {
 
 pub mod import_command {
     use super::*;
-    use crate::utils::file::read_file;
-
-    #[derive(Debug, Deserialize)]
-    struct DidImportConfig {
-        version: usize,
-        dids: Vec<DidImportInfo>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct DidImportInfo {
-        did: Option<String>,
-        seed: String,
-    }
+    use std::io::Read;
 
     command!(CommandMetadata::build(
         "import",
@@ -133,30 +90,37 @@ pub mod import_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let store = ensure_opened_store(&ctx)?;
 
         let path = get_str_param("file", params).map_err(error_err!())?;
 
-        let data = read_file(path)
-            .map_err(|_| println_err!("Unable to read DID import config from the provided file"))?;
+        let mut buf = String::new();
 
-        let config: DidImportConfig = serde_json::from_str(&data)
-            .map_err(|_| println_err!("Unable to read DID import config from the provided file"))?;
+        File::open(path)
+            .and_then(|mut file| file.read_to_string(&mut buf))
+            .map_err(|err| println_err!("Error during reading file {}", err))?;
 
-        if config.version != 1 {
-            println_err!("Unsupported DID import config version");
+        let json = serde_json::from_str::<JSONValue>(&buf)
+            .map_err(|err| println_err!("Can't parse JSON {:?}", err))?;
+
+        let is_correct_version = json["version"]
+            .as_i64()
+            .map(|ver| (ver == 1))
+            .unwrap_or(false);
+
+        if !is_correct_version {
+            println_err!("Invalid or missed version");
             return Err(());
         }
 
-        for did in config.dids {
-            let (did, vk) = Did::new(
-                &store,
-                did.did.as_ref().map(String::as_str),
-                Some(&did.seed),
-                None,
-                None,
-            )
-            .map_err(|err| println_err!("{}", err.message(None)))?;
+        let dids = json["dids"]
+            .as_array()
+            .map(Clone::clone)
+            .ok_or_else(|| println_err!("missed DIDs"))?;
+
+        for did in dids {
+            let (did, vk) = Did::new(&store, did["did"].as_str(), did["seed"].as_str(), None, None)
+                .map_err(|err| println_err!("{}", err.message(None)))?;
 
             let vk = Did::abbreviate_verkey(&did, &vk)
                 .map_err(|err| println_err!("{}", err.message(None)))?;
@@ -188,7 +152,7 @@ pub mod use_command {
 
         let did = get_did_param("did", params).map_err(error_err!())?;
 
-        let store = ensure_opened_wallet(ctx)?;
+        let store = ensure_opened_store(ctx)?;
 
         Did::get_did_with_meta(&store, &did)
             .map_err(|err| println_err!("{}", err.message(None)))?;
@@ -227,15 +191,11 @@ pub mod rotate_key_command {
             .unwrap_or(false);
 
         let did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool_with_name(&ctx);
-        let store = ensure_opened_wallet(&ctx)?;
+        let (pool, pool_name) = ensure_connected_pool(&ctx)?;
+        let (store, _) = ensure_opened_wallet(&ctx)?;
 
         // get verkey from ledger
-        let ledger_verkey = match pool {
-            Some((pool, pool_name)) => _get_current_verkey(&pool, &pool_name, &store, &did)?,
-            None => None,
-        };
-
+        let ledger_verkey = _get_current_verkey(&pool, &pool_name, &store, &did)?;
         let is_did_on_the_ledger = ledger_verkey.is_some();
 
         let (new_verkey, update_ledger) = if resume {
@@ -293,8 +253,6 @@ pub mod rotate_key_command {
         };
 
         if update_ledger && is_did_on_the_ledger {
-            let pool = ensure_connected_pool(&ctx)?;
-            let pool_name = ensure_connected_pool_name(&ctx)?;
             let mut request =
                 Ledger::build_nym_request(Some(&pool), &did, &did, Some(&new_verkey), None, None)
                     .map_err(|err| println_err!("{}", err.message(Some(&pool_name))))?;
@@ -368,7 +326,7 @@ pub mod list_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let store = ensure_opened_store(&ctx)?;
 
         let mut dids = Did::list_dids_with_meta(&store)
             .map_err(|err| println_err!("{}", err.message(None)))?;
@@ -418,11 +376,10 @@ pub mod qualify_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?}, params {:?}", ctx, params);
 
-        let wallet = ensure_opened_wallet(ctx)?;
         let did = get_did_param("did", params).map_err(error_err!())?;
         let method = get_str_param("method", params).map_err(error_err!())?;
 
-        let full_qualified_did = Did::qualify_did(&wallet, &did, &method)
+        let full_qualified_did = Did::qualify_did(&did, &method)
             .map_err(|err| println_err!("{}", err.message(None)))?;
 
         println_succ!("Fully qualified DID \"{}\"", full_qualified_did);
@@ -451,14 +408,10 @@ pub fn did_list(ctx: &CommandContext) -> Vec<String> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{
-        commands::{
-            ledger::tests::send_nym,
-            pool::tests::{create_and_connect_pool, disconnect_and_delete_pool},
-            wallet::tests::{close_and_delete_wallet, create_and_open_wallet},
-        },
-        tools::did::{Did, DidInfo},
-    };
+    use crate::commands::ledger::tests::send_nym;
+    use crate::commands::pool::tests::{create_and_connect_pool, disconnect_and_delete_pool};
+    use crate::commands::wallet::tests::{close_and_delete_wallet, create_and_open_wallet};
+    use crate::tools::did::Did;
 
     pub const SEED_TRUSTEE: &'static str = "000000000000000000000000Trustee1";
     pub const DID_TRUSTEE: &'static str = "V4SGRU86Z58d6TV7PBUe6f";
@@ -499,7 +452,7 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             let did = get_did_info(&ctx, DID_TRUSTEE);
-            assert_eq!(did.did, DID_TRUSTEE);
+            assert_eq!(did["did"].as_str().unwrap(), DID_TRUSTEE);
 
             tear_down_with_wallet(&ctx);
         }
@@ -514,8 +467,8 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             let did = get_did_info(&ctx, DID_TRUSTEE);
-            assert_eq!(did.did, DID_TRUSTEE);
-            assert_eq!(did.verkey, VERKEY_TRUSTEE);
+            assert_eq!(did["did"].as_str().unwrap(), DID_TRUSTEE);
+            assert_eq!(did["verkey"].as_str().unwrap(), VERKEY_TRUSTEE);
 
             tear_down_with_wallet(&ctx);
         }
@@ -549,16 +502,7 @@ pub mod tests {
             }
             let dids = get_dids(&ctx);
             assert_eq!(1, dids.len());
-            assert_eq!(
-                dids.get(0)
-                    .as_ref()
-                    .unwrap()
-                    .metadata
-                    .as_ref()
-                    .unwrap()
-                    .to_string(),
-                metadata.to_string()
-            );
+            assert_eq!(dids[0]["metadata"].as_str().unwrap(), metadata);
 
             tear_down_with_wallet(&ctx);
         }
@@ -599,8 +543,8 @@ pub mod tests {
             }
             let expected_did = format!("did:{}:{}", method, DID_TRUSTEE);
             let did = get_did_info(&ctx, &expected_did);
-            assert_eq!(did.did, expected_did);
-            assert_eq!(did.verkey, VERKEY_TRUSTEE.to_string());
+            assert_eq!(did["did"].as_str().unwrap(), &expected_did);
+            assert_eq!(did["verkey"].as_str().unwrap(), VERKEY_TRUSTEE);
 
             tear_down_with_wallet(&ctx);
         }
@@ -618,8 +562,8 @@ pub mod tests {
             }
             let expected_did = format!("did:{}:{}", method, DID_TRUSTEE);
             let did = get_did_info(&ctx, &expected_did);
-            assert_eq!(did.did, expected_did);
-            assert_eq!(did.verkey, VERKEY_TRUSTEE);
+            assert_eq!(did["did"].as_str().unwrap(), &expected_did);
+            assert_eq!(did["verkey"].as_str().unwrap(), VERKEY_TRUSTEE);
 
             tear_down_with_wallet(&ctx);
         }
@@ -638,7 +582,7 @@ pub mod tests {
                 params.insert("did", DID_TRUSTEE.to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            assert_eq!(ensure_active_did(&ctx).unwrap().to_string(), DID_TRUSTEE);
+            assert_eq!(ensure_active_did(&ctx).unwrap(), DID_TRUSTEE);
             tear_down_with_wallet(&ctx);
         }
 
@@ -712,11 +656,9 @@ pub mod tests {
         use super::*;
 
         fn ensure_nym_written(ctx: &CommandContext, did: &str, verkey: &str) {
-            let pool = get_connected_pool(&ctx).unwrap();
-            let wallet = ensure_opened_wallet(ctx).unwrap();
-            let did = DidValue(did.to_string());
-            let mut request = Ledger::build_get_nym_request(Some(&pool), None, &did).unwrap();
-            Ledger::sign_request(&wallet, &did, &mut request).unwrap();
+            let wallet_handle = ensure_opened_store(ctx).unwrap();
+            let request = Ledger::build_get_nym_request(None, did).unwrap();
+            let request = Ledger::sign_request(wallet_handle, did, &request).unwrap();
             submit_retry(ctx, &request, |response| {
                 let res = req_for_nym(response);
                 match res {
@@ -724,7 +666,7 @@ pub mod tests {
                     _ => Err(()),
                 }
             })
-            .unwrap()
+                .unwrap()
         }
 
         fn req_for_nym(response: &str) -> Option<String> {
@@ -741,22 +683,22 @@ pub mod tests {
 
             new_did(&ctx, SEED_TRUSTEE);
 
-            let wallet = ensure_opened_wallet(&ctx).unwrap();
-            let (did, verkey) = Did::new(&wallet, None, None, None, None).unwrap();
+            let wallet_handle = ensure_opened_store(&ctx).unwrap();
+            let (did, verkey) = Did::new(wallet_handle, "{}").unwrap();
             use_did(&ctx, DID_TRUSTEE);
             send_nym(&ctx, &did, &verkey, None);
             ensure_nym_written(&ctx, &did, &verkey);
             use_did(&ctx, &did);
 
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), verkey);
             {
                 let cmd = rotate_key_command::new();
                 let params = CommandParams::new();
                 cmd.execute(&ctx, &params).unwrap();
             }
             let did_info = get_did_info(&ctx, &did);
-            assert_ne!(did_info.verkey, verkey);
+            assert_ne!(did_info["verkey"].as_str().unwrap(), verkey);
 
             tear_down_with_wallet_and_pool(&ctx);
         }
@@ -765,28 +707,26 @@ pub mod tests {
         pub fn rotate_resume_works_when_ledger_updated() {
             let ctx = setup();
 
-            let wallet = create_and_open_wallet(&ctx);
+            let wallet_handle = create_and_open_wallet(&ctx);
             create_and_connect_pool(&ctx);
-            let pool = ensure_connected_pool_handle(&ctx).unwrap();
+            let pool_handle = ensure_connected_pool_handle(&ctx).unwrap();
 
             new_did(&ctx, SEED_TRUSTEE);
 
-            let (did, verkey) = Did::new(&wallet, None, None, None, None).unwrap();
+            let (did, verkey) = Did::new(wallet_handle, "{}").unwrap();
             use_did(&ctx, DID_TRUSTEE);
             send_nym(&ctx, &did, &verkey, None);
             use_did(&ctx, &did);
 
-            let new_verkey = Did::replace_keys_start(&wallet, &did, None).unwrap();
-            let did = DidValue(did.to_string());
-            let mut request =
-                Ledger::build_nym_request(Some(&pool), &did, &did, Some(&new_verkey), None, None)
-                    .unwrap();
-            Ledger::sign_and_submit_request(&pool, &wallet, &did, &mut request).unwrap();
+            let new_verkey = Did::replace_keys_start(wallet_handle, &did, "{}").unwrap();
+            let request =
+                Ledger::build_nym_request(&did, &did, Some(&new_verkey), None, None).unwrap();
+            Ledger::sign_and_submit_request(pool_handle, wallet_handle, &did, &request).unwrap();
             ensure_nym_written(&ctx, &did, &new_verkey);
 
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey);
-            assert_eq!(did_info.next_verkey.unwrap(), new_verkey);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), verkey);
+            assert_eq!(did_info["tempVerkey"].as_str().unwrap(), new_verkey);
             {
                 let cmd = rotate_key_command::new();
                 let mut params = CommandParams::new();
@@ -794,8 +734,8 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, new_verkey);
-            assert_eq!(did_info.next_verkey, None);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), new_verkey);
+            assert_eq!(did_info["tempVerkey"].as_str(), None);
 
             close_and_delete_wallet(&ctx);
             disconnect_and_delete_pool(&ctx);
@@ -806,22 +746,22 @@ pub mod tests {
         pub fn rotate_resume_works_when_ledger_not_updated() {
             let ctx = setup();
 
-            let wallet = create_and_open_wallet(&ctx);
+            let wallet_handle = create_and_open_wallet(&ctx);
             create_and_connect_pool(&ctx);
 
             new_did(&ctx, SEED_TRUSTEE);
 
-            let (did, verkey) = Did::new(&wallet, None, None, None, None).unwrap();
+            let (did, verkey) = Did::new(wallet_handle, "{}").unwrap();
             use_did(&ctx, DID_TRUSTEE);
             send_nym(&ctx, &did, &verkey, None);
             use_did(&ctx, &did);
             ensure_nym_written(&ctx, &did, &verkey);
 
-            let new_verkey = Did::replace_keys_start(&wallet, &did, None).unwrap();
+            let new_verkey = Did::replace_keys_start(wallet_handle, &did, "{}").unwrap();
 
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey);
-            assert_eq!(did_info.next_verkey.unwrap(), new_verkey);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), verkey);
+            assert_eq!(did_info["tempVerkey"].as_str().unwrap(), new_verkey);
             {
                 let cmd = rotate_key_command::new();
                 let mut params = CommandParams::new();
@@ -829,8 +769,8 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, new_verkey);
-            assert_eq!(did_info.next_verkey, None);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), new_verkey);
+            assert_eq!(did_info["tempVerkey"].as_str(), None);
 
             close_and_delete_wallet(&ctx);
             disconnect_and_delete_pool(&ctx);
@@ -841,19 +781,19 @@ pub mod tests {
         pub fn rotate_resume_without_started_rotation_rejected() {
             let ctx = setup();
 
-            let wallet = create_and_open_wallet(&ctx);
+            let wallet_handle = create_and_open_wallet(&ctx);
             create_and_connect_pool(&ctx);
 
             new_did(&ctx, SEED_TRUSTEE);
 
-            let (did, verkey) = Did::new(&wallet, None, None, None, None).unwrap();
+            let (did, verkey) = Did::new(wallet_handle, "{}").unwrap();
             use_did(&ctx, DID_TRUSTEE);
             send_nym(&ctx, &did, &verkey, None);
             use_did(&ctx, &did);
 
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey);
-            assert_eq!(did_info.next_verkey, None);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), verkey);
+            assert_eq!(did_info["tempVerkey"].as_str(), None);
             {
                 let cmd = rotate_key_command::new();
                 let mut params = CommandParams::new();
@@ -861,8 +801,8 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap_err();
             }
             let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey); // it is not changed.
-            assert_eq!(did_info.next_verkey, None);
+            assert_eq!(did_info["verkey"].as_str().unwrap(), verkey); // it is not changed.
+            assert_eq!(did_info["tempVerkey"].as_str(), None);
 
             close_and_delete_wallet(&ctx);
             disconnect_and_delete_pool(&ctx);
@@ -929,15 +869,16 @@ pub mod tests {
         }
     }
 
-    fn get_did_info(ctx: &CommandContext, did: &str) -> DidInfo {
-        let wallet = ensure_opened_wallet(ctx).unwrap();
-        let did = DidValue(did.to_string());
-        Did::get_did_with_meta(&wallet, &did).unwrap()
+    fn get_did_info(ctx: &CommandContext, did: &str) -> serde_json::Value {
+        let wallet_handle = ensure_opened_store(ctx).unwrap();
+        let did_info = Did::get_did_with_meta(wallet_handle, did).unwrap();
+        serde_json::from_str(&did_info).unwrap()
     }
 
-    fn get_dids(ctx: &CommandContext) -> Vec<DidInfo> {
-        let wallet = ensure_opened_wallet(ctx).unwrap();
-        Did::list_dids_with_meta(&wallet).unwrap()
+    fn get_dids(ctx: &CommandContext) -> Vec<serde_json::Value> {
+        let wallet_handle = ensure_opened_store(ctx).unwrap();
+        let dids = Did::list_dids_with_meta(wallet_handle).unwrap();
+        serde_json::from_str(&dids).unwrap()
     }
 
     pub fn new_did(ctx: &CommandContext, seed: &str) {

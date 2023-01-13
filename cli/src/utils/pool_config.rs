@@ -1,10 +1,7 @@
 use crate::utils::environment::EnvironmentUtils;
-use std::{
-    fs,
-    fs::File,
-    io,
-    io::{Read, Write},
-};
+use std::fs::File;
+use std::io::{Read, Write};
+use std::{fs, io};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
@@ -34,33 +31,23 @@ impl PoolConfig {
             let mut gt_fin = File::open(&config.genesis_txn)?;
             let mut gt_fout = File::create(path.as_path())?;
             io::copy(&mut gt_fin, &mut gt_fout)?;
+            path.pop();
         }
-        let txn_path = path.to_string_lossy().to_string();
-
-        path.pop();
 
         // store config file
         {
-            path.push("config");
+            path.push(name);
             path.set_extension("json");
 
-            let pool_config = json!({ "genesis_txn": txn_path });
+            let pool_config = json!({
+                "genesis_txn": config.genesis_txn
+            });
 
             let mut f: File = File::create(path.as_path())?;
             f.write_all(pool_config.to_string().as_bytes())?;
             f.flush()?;
         }
 
-        Ok(())
-    }
-
-    pub(crate) fn write_transactions(
-        name: &str,
-        transactions: &Vec<String>,
-    ) -> Result<(), std::io::Error> {
-        let path = EnvironmentUtils::pool_transactions_path(name);
-        let mut f = File::create(path.as_path())?;
-        f.write_all(transactions.join("\n").as_bytes())?;
         Ok(())
     }
 

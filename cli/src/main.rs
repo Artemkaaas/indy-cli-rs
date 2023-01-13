@@ -1,11 +1,18 @@
 #![cfg_attr(feature = "fatal_warnings", deny(warnings))]
 
+extern crate ansi_term;
+extern crate atty;
+extern crate linefeed;
+extern crate unescape;
 #[macro_use]
 extern crate log;
+extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 #[macro_use]
 extern crate serde_json;
+extern crate log4rs;
+extern crate prettytable;
 
 #[macro_use]
 mod utils;
@@ -15,18 +22,18 @@ mod commands;
 mod error;
 mod tools;
 
-use crate::{
-    command_executor::CommandExecutor,
-    commands::{common, did, ledger, pool, wallet},
-    utils::history,
-};
+use crate::command_executor::CommandExecutor;
 
-use linefeed::{
-    complete::{Completer, Completion},
-    ReadResult, Reader, Signal, Terminal,
-};
+use crate::commands::{common, did, ledger, pool, wallet};
+use crate::utils::history;
 
-use std::{env, fs::File, io::BufReader, rc::Rc};
+use linefeed::complete::{Completer, Completion};
+use linefeed::{ReadResult, Reader, Signal, Terminal};
+
+use std::env;
+use std::fs::File;
+use std::io::BufReader;
+use std::rc::Rc;
 
 fn main() {
     #[cfg(target_os = "windows")]
@@ -133,7 +140,6 @@ fn build_executor() -> CommandExecutor {
         .add_command(common::init_logger_command::new())
         .add_group(did::group::new())
         .add_command(did::new_command::new())
-        .add_command(did::set_metadata_command::new())
         .add_command(did::import_command::new())
         .add_command(did::use_command::new())
         .add_command(did::rotate_key_command::new())

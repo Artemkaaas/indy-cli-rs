@@ -1,8 +1,10 @@
-use crate::{
-    command_executor::{Command, CommandContext, CommandMetadata, CommandParams, CommandResult},
-    commands::get_str_param,
-    utils::{file::read_file, logger},
+use crate::command_executor::{
+    Command, CommandContext, CommandMetadata, CommandParams, CommandResult,
 };
+use crate::commands::get_str_param;
+
+use crate::utils::file::read_file;
+use crate::utils::logger;
 
 pub mod about_command {
     use super::*;
@@ -12,19 +14,15 @@ pub mod about_command {
     fn execute(_ctx: &CommandContext, _params: &CommandParams) -> CommandResult {
         trace!("execute >> _ctx: params: {:?}", _params);
 
-        println_succ!(
-            "Hyperledger Aries Indy CLI (https://github.com/hyperledger/indy-cli-rs.git)"
-        );
+        println_succ!("Hyperledger Indy CLI (https://github.com/hyperledger/indy-sdk)");
         println!();
-        println_succ!(
-            "This is CLI tool for Hyperledger Indy (https://www.hyperledger.org/projects),"
-        );
+        println_succ!("This is the official CLI tool for Hyperledger Indy (https://www.hyperledger.org/projects),");
         println_succ!("which provides a distributed-ledger-based foundation for");
         println_succ!("self-sovereign identity (https://sovrin.org/).");
         println!();
         println_succ!("Version: {}", env!("CARGO_PKG_VERSION"));
         println_succ!("Apache License Version 2.0");
-        println_succ!("Copyright 2023 Hyperledger Aries");
+        println_succ!("Copyright 2017 Sovrin Foundation");
         println!();
 
         let res = Ok(());

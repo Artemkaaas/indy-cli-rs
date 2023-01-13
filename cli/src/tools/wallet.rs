@@ -1,18 +1,10 @@
-use crate::{
-    error::{CliError, CliResult},
-    utils::{
-        environment::EnvironmentUtils,
-        futures::block_on,
-        wallet_config::{Config, WalletConfig},
-    },
-};
+use crate::error::{CliError, CliResult};
+use crate::utils::environment::EnvironmentUtils;
+use crate::utils::wallet_config::Config;
 
-use aries_askar::{
-    any::AnyStore, Argon2Level, Error as AskarError, ErrorKind as AskarErrorKind, KdfMethod,
-    ManageBackend, PassKey, StoreKeyMethod,
-};
+use aries_askar::{any::AnyStore, future::block_on, ManageBackend, PassKey, StoreKeyMethod};
 use serde_json::Value as JsonValue;
-use std::fs;
+use std::{fs, fs::File, io::Read};
 
 pub struct Wallet {}
 
@@ -36,103 +28,71 @@ pub struct ExportConfig {
 pub struct ImportConfig {
     pub path: String,
     pub key: String,
-    pub key_derivation_method: Option<String>,
-}
-
-struct AskarCredentials<'a> {
-    key: PassKey<'a>,
-    key_method: StoreKeyMethod,
-    rekey: Option<PassKey<'a>>,
-    rekey_method: Option<StoreKeyMethod>,
 }
 
 impl Wallet {
     pub fn create(config: &Config, credentials: &Credentials) -> CliResult<AnyStore> {
-        if WalletConfig::exists(&config.id) {
-            return Err(CliError::Duplicate(format!(
-                "Wallet \"{}\" already exists",
-                config.id
-            )));
-        }
-
-        Self::create_wallet_directory(config)?;
-
-        let wallet_uri = Self::build_wallet_uri(config, credentials, None)?;
-        let credentials1 = Self::build_credentials(credentials)?;
+        Self::init_wallet_directory(config)?;
+        let wallet_uri = Self::build_uri(config, credentials)?;
+        let (method, key) = Self::build_credentials(credentials)?;
 
         block_on(async move {
-            let store = wallet_uri
-                .provision_backend(
-                    credentials1.key_method,
-                    credentials1.key.as_ref(),
-                    None,
-                    false,
-                )
+            wallet_uri
+                .provision_backend(method, key.as_ref(), None, false)
                 .await
-                .map_err(CliError::from)?;
-
-            // Askar Error
-            // If we have any opened store when later delete the wallet deletion will return ok
-            // But next we can recreate wallet with the same same record
-            store.close().await?;
-
-            Ok(store)
+                .map_err(CliError::from)
         })
     }
 
     pub fn open(config: &Config, credentials: &Credentials) -> CliResult<AnyStore> {
-        let wallet_uri = Self::build_wallet_uri(config, credentials, None)?;
-        let credentials = Self::build_credentials(credentials)?;
+        let wallet_uri = Self::build_uri(config, credentials)?;
+        let (method, key) = Self::build_credentials(credentials)?;
 
         block_on(async move {
-            let mut store: AnyStore = wallet_uri
-                .open_backend(Some(credentials.key_method), credentials.key.as_ref(), None)
+            wallet_uri
+                .open_backend(Some(method), key.as_ref(), None)
                 .await
-                .map_err(|err: AskarError| match err.kind() {
-                    AskarErrorKind::NotFound => CliError::NotFound(format!(
-                        "Wallet \"{}\" not found or unavailable.",
-                        config.id
-                    )),
-                    _ => CliError::from(err),
-                })?;
-
-            if let (Some(rekey), Some(rekey_method)) = (credentials.rekey, credentials.rekey_method)
-            {
-                store.rekey(rekey_method, rekey).await?;
-            }
-
-            Ok(store)
+                .map_err(CliError::from)
         })
+    }
+
+    pub fn delete(config: &Config, credentials: &Credentials) -> CliResult<bool> {
+        let wallet_uri = Self::build_uri(config, credentials)?;
+
+        block_on(async move { wallet_uri.remove_backend().await.map_err(CliError::from) })
     }
 
     pub fn close(store: &AnyStore) -> CliResult<()> {
         block_on(async move { store.close().await.map_err(CliError::from) })
     }
 
-    pub fn delete(config: &Config, credentials: &Credentials) -> CliResult<bool> {
-        let wallet_uri = Self::build_wallet_uri(config, credentials, None)?;
-
-        block_on(async move {
-            let removed = wallet_uri.remove_backend().await.map_err(CliError::from)?;
-            if !removed {
-                return Err(CliError::InvalidEntityState(format!(
-                    "Unable to delete wallet {}",
-                    config.id
-                )));
-            }
-            Self::delete_wallet_directory(config)?;
-            Ok(removed)
-        })
-    }
-
     pub fn list() -> Vec<JsonValue> {
-        WalletConfig::list()
+        let mut configs: Vec<JsonValue> = Vec::new();
+
+        if let Ok(entries) = fs::read_dir(EnvironmentUtils::wallets_path()) {
+            for entry in entries {
+                let file = if let Ok(dir_entry) = entry {
+                    dir_entry
+                } else {
+                    continue;
+                };
+
+                let mut config_json = String::new();
+
+                File::open(file.path())
+                    .ok()
+                    .and_then(|mut f| f.read_to_string(&mut config_json).ok())
+                    .and_then(|_| serde_json::from_str::<JsonValue>(config_json.as_str()).ok())
+                    .map(|config| configs.push(config));
+            }
+        }
+
+        configs
     }
 
-    pub fn export(_store: &AnyStore, _name: &str, _export_config: &ExportConfig) -> CliResult<()> {
-        Err(CliError::Unimplemented(
-            "Wallet exporting is not currently supported!".to_string(),
-        ))
+    pub fn export(_store: &AnyStore, _export_config: &ExportConfig) -> CliResult<()> {
+        unimplemented!()
+        // wallet::export_wallet(wallet_handle, export_config_json).wait()
     }
 
     pub fn import(
@@ -140,55 +100,28 @@ impl Wallet {
         _credentials: &Credentials,
         _import_config: &ImportConfig,
     ) -> CliResult<()> {
-        Err(CliError::Unimplemented(
-            "Wallet importing is not currently supported!".to_string(),
-        ))
+        unimplemented!()
+        // wallet::import_wallet(config, credentials, import_config_json).wait()
     }
 
-    fn create_wallet_directory(config: &Config) -> CliResult<()> {
+    fn init_wallet_directory(config: &Config) -> CliResult<()> {
         let path = EnvironmentUtils::wallet_path(&config.id);
         fs::create_dir_all(path.as_path()).map_err(CliError::from)
     }
 
-    fn delete_wallet_directory(config: &Config) -> CliResult<()> {
-        let path = EnvironmentUtils::wallet_path(&config.id);
-        if !path.exists() {
-            return Err(CliError::NotFound(format!(
-                "Wallet \"{}\" does not exist",
-                config.id
-            )));
-        }
-        fs::remove_dir_all(path.as_path()).map_err(CliError::from)
-    }
-
-    fn build_wallet_uri(
-        config: &Config,
-        credentials: &Credentials,
-        path: Option<&str>,
-    ) -> CliResult<String> {
+    fn build_uri(config: &Config, credentials: &Credentials) -> CliResult<String> {
         let storage_type = Self::map_storage_type(&config.storage_type)?;
         match storage_type {
-            StorageType::Sqlite => Self::build_sqlite_uri(config, credentials, path),
+            StorageType::Sqlite => Self::build_sqlite_uri(config, credentials),
             StorageType::Postgres => Self::build_postgres_uri(config, credentials),
         }
     }
 
-    fn build_sqlite_uri(
-        config: &Config,
-        _credentials: &Credentials,
-        path: Option<&str>,
-    ) -> CliResult<String> {
-        let path = match path {
-            Some(path) => format!("{}/{}.db", path.to_string(), config.id),
-            None => {
-                let mut path = EnvironmentUtils::wallet_path(&config.id);
-                path.push(&config.id);
-                path.set_extension("db");
-                path.to_string_lossy().to_string()
-            }
-        };
-
-        let uri = format!("{}://{}", "sqlite", path);
+    fn build_sqlite_uri(config: &Config, _credentials: &Credentials) -> CliResult<String> {
+        let mut path = EnvironmentUtils::wallet_path(&config.id);
+        path.push(&config.id);
+        path.set_extension("db");
+        let uri = format!("{}://{}", "sqlite", path.to_string_lossy());
         Ok(uri)
     }
 
@@ -252,36 +185,15 @@ impl Wallet {
         Ok(uri)
     }
 
-    fn build_credentials(credentials: &Credentials) -> CliResult<AskarCredentials> {
-        let key_method = Self::map_key_derivation_method(
+    fn build_credentials(credentials: &Credentials) -> CliResult<(StoreKeyMethod, PassKey)> {
+        let method = Self::map_key_derivation_method(
             credentials
                 .key_derivation_method
                 .as_ref()
                 .map(String::as_str),
         )?;
         let key = PassKey::from(credentials.key.to_string());
-
-        let rekey = credentials
-            .rekey
-            .as_ref()
-            .map(|rekey| PassKey::from(rekey.to_string()));
-
-        let rekey_method = match credentials.rekey {
-            Some(_) => Some(Self::map_key_derivation_method(
-                credentials
-                    .rekey_derivation_method
-                    .as_ref()
-                    .map(String::as_str),
-            )?),
-            None => None,
-        };
-
-        Ok(AskarCredentials {
-            key,
-            key_method,
-            rekey,
-            rekey_method,
-        })
+        Ok((method, key))
     }
 
     fn map_storage_type(storage_type: &str) -> CliResult<StorageType> {
@@ -289,7 +201,7 @@ impl Wallet {
             "default" | "sqlite" => Ok(StorageType::Sqlite),
             "postgres" => Ok(StorageType::Postgres),
             value => Err(CliError::InvalidInput(format!(
-                "Unsupported storage type provided: {}",
+                "Unsupported storage type {} provided",
                 value
             ))),
         }
@@ -297,15 +209,11 @@ impl Wallet {
 
     fn map_key_derivation_method(key: Option<&str>) -> CliResult<StoreKeyMethod> {
         match key {
-            None | Some("argon2m") => Ok(StoreKeyMethod::DeriveKey(KdfMethod::Argon2i(
-                Argon2Level::Moderate,
-            ))),
-            Some("argon2i") => Ok(StoreKeyMethod::DeriveKey(KdfMethod::Argon2i(
-                Argon2Level::Interactive,
-            ))),
+            None | Some("argon2m") => Ok(StoreKeyMethod::Unprotected),
+            Some("argon2i") => Ok(StoreKeyMethod::Unprotected),
             Some("raw") => Ok(StoreKeyMethod::RawKey),
             Some(value) => Err(CliError::InvalidInput(format!(
-                "Unsupported key derivation method \"{}\" provided for the wallet.",
+                "Unsupported key derivation method provided {}",
                 value
             ))),
         }

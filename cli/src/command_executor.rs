@@ -1,13 +1,15 @@
+extern crate log4rs;
+extern crate rpassword;
+
 use unescape::unescape;
 
 use aries_askar::any::AnyStore;
 use indy_vdr::pool::LocalPool;
-use std::{
-    cell::RefCell,
-    collections::{BTreeMap, HashMap},
-    fmt::{Debug, Formatter},
-    rc::Rc,
-};
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 
 use linefeed::{ReadResult, Reader};
 

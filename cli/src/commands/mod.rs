@@ -1,18 +1,22 @@
+extern crate regex;
+extern crate serde_json;
+
 pub mod common;
 pub mod did;
 pub mod ledger;
 pub mod pool;
 pub mod wallet;
 
-use crate::{
-    command_executor::{CommandContext, CommandParams},
-    error::CliError,
-};
+use crate::command_executor::{CommandContext, CommandParams};
 
+use crate::error::CliError;
 use aries_askar::any::AnyStore;
-use indy_utils::{did::DidValue, Qualifiable};
+use indy_utils::did::DidValue;
+use indy_utils::Qualifiable;
 use indy_vdr::pool::LocalPool;
-use std::{fmt::Display, rc::Rc, str::FromStr};
+use regex::Regex;
+use std;
+use std::rc::Rc;
 
 pub fn get_str_param<'a>(name: &'a str, params: &'a CommandParams) -> Result<&'a str, ()> {
     match params.get(name) {
@@ -51,8 +55,8 @@ pub fn get_opt_empty_str_param<'a>(
 
 pub fn _get_int_param<T>(name: &str, params: &CommandParams) -> Result<T, ()>
 where
-    T: FromStr,
-    <T as FromStr>::Err: Display,
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
 {
     match params.get(name) {
         Some(v) => Ok(v.parse::<T>().map_err(|err| {
@@ -67,8 +71,8 @@ where
 
 pub fn get_number_param<T>(key: &str, params: &CommandParams) -> Result<T, ()>
 where
-    T: FromStr,
-    <T as FromStr>::Err: Display,
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
 {
     match params.get(key) {
         Some(value) => value.parse::<T>().map_err(|err| {
@@ -88,8 +92,8 @@ where
 
 pub fn get_opt_number_param<T>(key: &str, params: &CommandParams) -> Result<Option<T>, ()>
 where
-    T: FromStr,
-    <T as FromStr>::Err: Display,
+    T: std::str::FromStr,
+    <T as std::str::FromStr>::Err: std::fmt::Display,
 {
     let res = match params.get(key) {
         Some(value) => Some(value.parse::<T>().map_err(|err| {
@@ -217,6 +221,43 @@ pub fn get_number_tuple_array_param<'a>(
     }
 }
 
+pub fn convert_did(did: &str) -> Result<DidValue, ()> {
+    DidValue::from_str(&did).map_err(|_| println_err!("Invalid DID {} stored in the context", did))
+}
+
+pub fn ensure_active_did(ctx: &CommandContext) -> Result<DidValue, ()> {
+    match ctx.get_string_value("ACTIVE_DID") {
+        Some(did) => convert_did(&did),
+        None => {
+            println_err!("There is no active did");
+            Err(())
+        }
+    }
+}
+
+pub fn get_active_did(ctx: &CommandContext) -> Result<Option<DidValue>, ()> {
+    match ctx.get_string_value("ACTIVE_DID") {
+        Some(did) => {
+            let did = convert_did(&did)?;
+            Ok(Some(did))
+        }
+        None => Ok(None),
+    }
+}
+
+pub fn set_active_did(ctx: &CommandContext, did: String) {
+    ctx.set_string_value("ACTIVE_DID", Some(did.clone()));
+    ctx.set_sub_prompt(
+        3,
+        Some(format!("did({}...{})", &did[..3], &did[did.len() - 3..])),
+    );
+}
+
+pub fn reset_active_did(ctx: &CommandContext) {
+    ctx.set_string_value("ACTIVE_DID", None);
+    ctx.set_sub_prompt(3, None);
+}
+
 pub fn get_did_param<'a>(name: &'a str, params: &'a CommandParams) -> Result<DidValue, ()> {
     let did_str = get_str_param(name, params)?;
     convert_did(did_str)
@@ -233,55 +274,7 @@ pub fn get_opt_did_param<'a>(
     }
 }
 
-pub fn ensure_active_did(ctx: &CommandContext) -> Result<DidValue, ()> {
-    match ctx.get_string_value("ACTIVE_DID") {
-        Some(did) => convert_did(&did),
-        None => {
-            println_err!("There is no active did");
-            Err(())
-        }
-    }
-}
-
-pub fn set_active_did(ctx: &CommandContext, did: String) {
-    ctx.set_string_value("ACTIVE_DID", Some(did.clone()));
-    ctx.set_sub_prompt(
-        3,
-        Some(format!("did({}...{})", &did[..3], &did[did.len() - 3..])),
-    );
-}
-
-pub fn get_active_did(ctx: &CommandContext) -> Result<Option<DidValue>, ()> {
-    match ctx.get_string_value("ACTIVE_DID") {
-        Some(did) => {
-            let did = convert_did(&did)?;
-            Ok(Some(did))
-        }
-        None => Ok(None),
-    }
-}
-
-pub fn reset_active_did(ctx: &CommandContext) {
-    ctx.set_string_value("ACTIVE_DID", None);
-    ctx.set_sub_prompt(3, None);
-}
-
-pub fn set_opened_wallet(ctx: &CommandContext, value: Option<(AnyStore, String)>) {
-    match value {
-        Some((store, wallet_name)) => {
-            ctx.set_store_value(Some(store));
-            ctx.set_string_value("OPENED_WALLET_NAME", Some(wallet_name.to_owned()));
-            ctx.set_sub_prompt(2, Some(wallet_name));
-        }
-        None => {
-            ctx.set_store_value(None);
-            ctx.set_string_value("OPENED_WALLET_NAME", None);
-            ctx.set_sub_prompt(2, None);
-        }
-    }
-}
-
-pub fn ensure_opened_wallet(ctx: &CommandContext) -> Result<Rc<AnyStore>, ()> {
+pub fn ensure_opened_store(ctx: &CommandContext) -> Result<Rc<AnyStore>, ()> {
     match ctx.get_store_value() {
         Some(store) => Ok(store),
         None => {
@@ -291,11 +284,12 @@ pub fn ensure_opened_wallet(ctx: &CommandContext) -> Result<Rc<AnyStore>, ()> {
     }
 }
 
-pub fn ensure_opened_wallet_name(ctx: &CommandContext) -> Result<String, ()> {
+pub fn ensure_opened_wallet(ctx: &CommandContext) -> Result<(Rc<AnyStore>, String), ()> {
+    let store = ctx.get_store_value();
     let name = ctx.get_string_value("OPENED_WALLET_NAME");
 
-    match name {
-        Some(name) => Ok(name),
+    match (store, name) {
+        (Some(store), Some(name)) => Ok((store, name)),
         _ => {
             println_err!("There is no opened wallet now");
             Err(())
@@ -314,13 +308,19 @@ pub fn get_opened_wallet(ctx: &CommandContext) -> Option<(Rc<AnyStore>, String)>
     }
 }
 
-pub fn set_connected_pool(ctx: &CommandContext, value: Option<(LocalPool, String)>) {
-    ctx.set_string_value(
-        "CONNECTED_POOL_NAME",
-        value.as_ref().map(|value| value.1.to_owned()),
-    );
-    ctx.set_sub_prompt(1, value.as_ref().map(|value| format!("pool({})", value.1)));
-    ctx.set_pool_value(value.map(|value| value.0));
+pub fn set_opened_wallet(ctx: &CommandContext, value: Option<(AnyStore, String)>) {
+    match value {
+        Some((store, wallet_name)) => {
+            ctx.set_store_value(Some(store));
+            ctx.set_string_value("OPENED_WALLET_NAME", Some(wallet_name.to_owned()));
+            ctx.set_sub_prompt(2, Some(wallet_name));
+        }
+        None => {
+            ctx.set_store_value(None);
+            ctx.set_string_value("OPENED_WALLET_NAME", None);
+            ctx.set_sub_prompt(2, None);
+        }
+    }
 }
 
 pub fn ensure_connected_pool_handle(ctx: &CommandContext) -> Result<Rc<LocalPool>, ()> {
@@ -333,23 +333,12 @@ pub fn ensure_connected_pool_handle(ctx: &CommandContext) -> Result<Rc<LocalPool
     }
 }
 
-pub fn ensure_connected_pool(ctx: &CommandContext) -> Result<Rc<LocalPool>, ()> {
+pub fn ensure_connected_pool(ctx: &CommandContext) -> Result<(Rc<LocalPool>, String), ()> {
     let handle = ctx.get_pool_value();
-
-    match handle {
-        Some(handle) => Ok(handle),
-        _ => {
-            println_err!("There is no opened pool now");
-            Err(())
-        }
-    }
-}
-
-pub fn ensure_connected_pool_name(ctx: &CommandContext) -> Result<String, ()> {
     let name = ctx.get_string_value("CONNECTED_POOL_NAME");
 
-    match name {
-        Some(name) => Ok(name),
+    match (handle, name) {
+        (Some(handle), Some(name)) => Ok((handle, name)),
         _ => {
             println_err!("There is no opened pool now");
             Err(())
@@ -378,15 +367,24 @@ pub fn get_connected_pool_with_name(ctx: &CommandContext) -> Option<(Rc<LocalPoo
     }
 }
 
-pub fn set_context_transaction(ctx: &CommandContext, request: Option<String>) {
+pub fn set_connected_pool(ctx: &CommandContext, value: Option<(LocalPool, String)>) {
+    ctx.set_string_value(
+        "CONNECTED_POOL_NAME",
+        value.as_ref().map(|value| value.1.to_owned()),
+    );
+    ctx.set_sub_prompt(1, value.as_ref().map(|value| format!("pool({})", value.1)));
+    ctx.set_pool_value(value.map(|value| value.0));
+}
+
+pub fn set_transaction(ctx: &CommandContext, request: Option<String>) {
     ctx.set_string_value("LEDGER_TRANSACTION", request.clone());
 }
 
-pub fn get_context_transaction(ctx: &CommandContext) -> Option<String> {
+pub fn get_transaction(ctx: &CommandContext) -> Option<String> {
     ctx.get_string_value("LEDGER_TRANSACTION")
 }
 
-pub fn ensure_context_transaction(ctx: &CommandContext) -> Result<String, ()> {
+pub fn ensure_set_transaction(ctx: &CommandContext) -> Result<String, ()> {
     match ctx.get_string_value("LEDGER_TRANSACTION") {
         Some(transaction) => Ok(transaction),
         None => {
@@ -439,37 +437,33 @@ pub fn get_pool_protocol_version(ctx: &CommandContext) -> usize {
     }
 }
 
-pub fn convert_did(did: &str) -> Result<DidValue, ()> {
-    DidValue::from_str(&did).map_err(|_| println_err!("Invalid DID {} provided", did))
+pub fn extract_error_message(error: &str) -> String {
+    let re = Regex::new(r#"\(["'](.*)["'],\)"#).unwrap();
+    match re.captures(error) {
+        Some(message) => message[1].to_string(),
+        None => error.to_string(),
+    }
 }
 
 #[cfg(test)]
 use crate::tools::ledger::Ledger;
-#[cfg(test)]
-use indy_vdr::pool::PreparedRequest;
-#[cfg(test)]
-use std::{thread::sleep, time};
 
 #[cfg(test)]
-pub fn submit_retry<F, T, E>(
-    ctx: &CommandContext,
-    request: &PreparedRequest,
-    parser: F,
-) -> Result<(), ()>
+pub fn submit_retry<F, T, E>(ctx: &CommandContext, request: &str, parser: F) -> Result<(), ()>
 where
     F: Fn(&str) -> Result<T, E>,
 {
     const SUBMIT_RETRY_CNT: usize = 3;
     const SUBMIT_TIMEOUT_SEC: u64 = 2;
 
-    let pool = ensure_connected_pool_handle(ctx).unwrap();
+    let pool_handle = ensure_connected_pool_handle(ctx).unwrap();
 
     for _ in 0..SUBMIT_RETRY_CNT {
-        let response = Ledger::submit_request(pool.as_ref(), request).unwrap();
+        let response = Ledger::submit_request(pool_handle, request).unwrap();
         if parser(&response).is_ok() {
             return Ok(());
         }
-        sleep(time::Duration::from_secs(SUBMIT_TIMEOUT_SEC));
+        ::std::thread::sleep(::std::time::Duration::from_secs(SUBMIT_TIMEOUT_SEC));
     }
 
     return Err(());

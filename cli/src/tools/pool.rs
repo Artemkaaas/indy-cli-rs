@@ -1,11 +1,7 @@
-use crate::{
-    error::{CliError, CliResult},
-    utils::{
-        futures::block_on,
-        pool_config::{Config, PoolConfig},
-    },
-};
+use crate::error::{CliError, CliResult};
+use crate::utils::pool_config::{Config, PoolConfig};
 
+use aries_askar::future::block_on;
 use indy_vdr::{
     config::PoolConfig as OpenPoolConfig,
     pool::{helpers::perform_refresh, LocalPool, Pool as PoolImpl, PoolBuilder, PoolTransactions},
@@ -31,7 +27,7 @@ impl Pool {
             .map_err(CliError::from)
     }
 
-    pub fn refresh(name: &str, pool: &LocalPool) -> CliResult<Option<LocalPool>> {
+    pub fn refresh(pool: &LocalPool) -> CliResult<Option<LocalPool>> {
         let (transactions, _) = block_on(async move { perform_refresh(pool).await })?;
 
         match transactions {
@@ -42,8 +38,6 @@ impl Pool {
                 let pool = PoolBuilder::from(pool.get_config().to_owned())
                     .transactions(transactions)?
                     .into_local()?;
-
-                PoolConfig::write_transactions(name, &pool.get_json_transactions()?)?;
 
                 Ok(Some(pool))
             }
@@ -56,6 +50,7 @@ impl Pool {
     }
 
     pub fn close(_pool: &LocalPool) -> CliResult<()> {
+        // TODO: what should we do HERE?
         Ok(())
     }
 

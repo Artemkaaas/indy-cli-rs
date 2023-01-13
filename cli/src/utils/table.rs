@@ -1,5 +1,10 @@
-use prettytable::{Cell, Row, Table};
-use term::{color, Attr};
+extern crate serde_json;
+extern crate term;
+
+use self::term::{color, Attr};
+use prettytable::cell::Cell;
+use prettytable::row::Row;
+use prettytable::Table;
 
 pub fn print_list_table(rows: &[serde_json::Value], headers: &[(&str, &str)], empty_msg: &str) {
     if rows.is_empty() {

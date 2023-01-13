@@ -1,15 +1,17 @@
-use crate::{
-    command_executor::{
-        wait_for_user_reply, Command, CommandContext, CommandGroup, CommandGroupMetadata,
-        CommandMetadata, CommandParams, DynamicCompletionType,
-    },
-    commands::*,
-    tools::pool::Pool,
-    utils::table::print_list_table,
-};
+extern crate chrono;
+extern crate serde_json;
 
-use chrono::prelude::*;
+use crate::command_executor::{
+    wait_for_user_reply, Command, CommandContext, CommandGroup, CommandGroupMetadata,
+    CommandMetadata, CommandParams, DynamicCompletionType,
+};
+use crate::commands::*;
 use indy_vdr::{config::PoolConfig, pool::ProtocolVersion};
+
+use crate::tools::pool::Pool;
+use crate::utils::table::print_list_table;
+
+use self::chrono::prelude::*;
 
 pub mod group {
     use super::*;
@@ -115,7 +117,7 @@ pub mod connect_command {
         //     JSONValue::from(json).to_string()
         // };
 
-        let protocol_version = ProtocolVersion::from_id(protocol_version as i64).map_err(|_| {
+        let protocol_version = ProtocolVersion::from_id(protocol_version as u64).map_err(|_| {
             println_err!("Unexpected Pool protocol version \"{}\".", protocol_version)
         })?;
 
@@ -133,13 +135,13 @@ pub mod connect_command {
             close_pool(ctx, &pool, &name)?;
         }
 
-        let pool =
-            Pool::open(name, config).map_err(|err| println_err!("{}", err.message(Some(&name))))?;
+        let pool = Pool::open(name, config)
+            .map_err(|err| println_err!("{}", err.message(Some(&name))))?;
 
         set_connected_pool(ctx, Some((pool, name.to_owned())));
         println_succ!("Pool \"{}\" has been connected", name);
 
-        let pool = ensure_connected_pool(ctx)?;
+        let (pool, _) = ensure_connected_pool(ctx)?;
         set_transaction_author_agreement(ctx, &pool, true)?;
 
         trace!("execute <<");
@@ -220,11 +222,12 @@ pub mod refresh_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let pool_name = ensure_connected_pool_name(&ctx)?;
+        let (pool, pool_name) = ensure_connected_pool(&ctx)?;
 
-        Pool::refresh(&pool_name, &pool)
-            .map_err(|err| println_err!("Unable to refresh pool. Reason: {}", err.message(None)))?;
+        Pool::refresh(&pool).map_err(|err| {
+            println_err!("{}", err.message(Some(&pool_name)));
+            close_pool(ctx, &pool, &pool_name).ok();
+        })?;
 
         println_succ!("Pool \"{}\"  has been refreshed", pool_name);
 
@@ -267,8 +270,7 @@ pub mod disconnect_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let name = ensure_connected_pool_name(&ctx)?;
+        let (pool, name) = ensure_connected_pool(ctx)?;
 
         close_pool(ctx, &pool, &name)?;
 
@@ -659,6 +661,20 @@ pub mod tests {
         use super::*;
 
         #[test]
+        pub fn disconnect_works() {
+            let ctx = setup();
+            create_and_connect_pool(&ctx);
+            {
+                let cmd = disconnect_command::new();
+                let params = CommandParams::new();
+                cmd.execute(&ctx, &params).unwrap();
+            }
+            ensure_connected_pool_handle(&ctx).unwrap_err();
+            delete_pool(&ctx);
+            tear_down();
+        }
+
+        #[test]
         pub fn disconnect_works_for_not_opened() {
             let ctx = setup();
             create_pool(&ctx);
@@ -729,8 +745,9 @@ pub mod tests {
                 let cmd = delete_command::new();
                 let mut params = CommandParams::new();
                 params.insert("name", POOL.to_string());
-                cmd.execute(&ctx, &params).unwrap();
+                cmd.execute(&ctx, &params).unwrap_err();
             }
+            disconnect_and_delete_pool(&ctx);
             tear_down();
         }
     }
