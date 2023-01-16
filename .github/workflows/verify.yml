@@ -80,10 +80,10 @@ jobs:
       - name: Cargo check
         run: cargo check
 
-#      - name: Cargo fmt
-#        # TODO enable that once https://github.com/rust-lang/rustfmt/issues/4477 is resolved
-#        if: runner.os != 'Windows'
-#        run: cargo fmt --all -- --check
+      - name: Cargo fmt
+        # TODO enable that once https://github.com/rust-lang/rustfmt/issues/4477 is resolved
+        if: runner.os != 'Windows'
+        run: cargo fmt --all -- --check
 
       - name: Debug build
         run: cargo build --verbose
