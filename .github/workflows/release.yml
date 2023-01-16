@@ -106,7 +106,7 @@ jobs:
       steps:
         - uses: actions/checkout@v3
 
-        - name: Set rustup profile & toolchain
+        - name: Install Rust toolchain
           uses: dtolnay/rust-toolchain@stable
 
         - name: Package and verify crate
@@ -159,11 +159,8 @@ jobs:
       steps:
         - uses: actions/checkout@v3
 
-        - name: Set rustup profile & toolchain
-          run: |
-            rustup set profile minimal
-            rustup toolchain install stable
-          shell: bash
+        - name: Install Rust toolchain
+          uses: dtolnay/rust-toolchain@stable
 
         - name: Package binary
           id: build_assets

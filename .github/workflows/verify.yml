@@ -71,7 +71,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set rustup profile & toolchain
+      - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
       - name: Cache cargo resources
@@ -90,6 +90,12 @@ jobs:
 
       - name: Run node pool
         run: |
+          # Install docker on macos runner
+          if [[ ${{ matrix.os }} == 'macos-latest' ]]; then
+            brew install docker
+            colima start
+          fi
+          
           docker build -f ../ci/indy-pool.dockerfile -t test_pool --build-arg pool_ip=10.0.0.2 ../ci
           docker network create --subnet=10.0.0.0/8 indy-sdk-network
           docker run -d --name indy_pool -p 9701-9708:9701-9708 --net=indy-sdk-network test_pool
