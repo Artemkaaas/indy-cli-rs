@@ -4,12 +4,6 @@ on:
   push:
     branches:
       - main
-  workflow_dispatch:
-    inputs:
-      devN:
-        description: 'development release number'
-        required: false
-        default: '0'
 
 
 env:
@@ -28,6 +22,9 @@ jobs:
       asset_crate_url: ${{ steps.release_info.outputs.asset_crate_url }}
       upload_url:  ${{ steps.release_info.outputs.upload_url }}
       already_in_crates_io: ${{ steps.check_in_crates_io.outputs.already_in_crates_io != '' }}
+    defaults:
+      run:
+        working-directory: cli
 
     steps:
       - uses: actions/checkout@v2
@@ -73,6 +70,7 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: checks
+
     steps:
       - uses: actions/checkout@v2
 
@@ -101,6 +99,10 @@ jobs:
       if: github.ref == 'refs/heads/main'
       runs-on: ubuntu-latest
       needs: [ checks, create_release ]
+      defaults:
+        run:
+          working-directory: cli
+
       steps:
         - uses: actions/checkout@v2
 
@@ -154,6 +156,10 @@ jobs:
       strategy:
         matrix:
           platform: [ {name: linux, build_target: x86_64-unknown-linux-musl}, {name: windows, build_target: x86_64-pc-windows-msvc}, {name: mac-os-intel, build_target: x86_64-apple-darwin}, {name: mac-os-m1, build_target: aarch64-apple-darwin} ]
+      defaults:
+        run:
+          working-directory: cli
+
       steps:
         - uses: actions/checkout@v2
 
