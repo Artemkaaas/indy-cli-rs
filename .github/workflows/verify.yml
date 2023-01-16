@@ -2,6 +2,7 @@ name: verify
 
 on:
   pull_request:
+#    - main
 
 
 env:
@@ -19,7 +20,7 @@ jobs:
         working-directory: cli
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
 
       - name: Get current version
         id: current_version
@@ -60,39 +61,44 @@ jobs:
       matrix:
         os: [ macos-latest, windows-latest, ubuntu-latest ]
     runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: cli
+    env:
+      RUST_TEST_THREADS: 1
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set rustup profile & toolchain
-        run: |
-          rustup set profile minimal
-          rustup toolchain install stable
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Get timestamp for cache
-        id: date
-        run: echo ::set-output name=yearmo::$(date +%Y%m)
-      - uses: actions/cache@v2
+      - name: Cache cargo resources
+        uses: Swatinem/rust-cache@v2
+
+      - name: Cargo check
+        uses: actions-rs/cargo@v1
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.toml') }}-${{steps.date.outputs.yearmo}}
+          command: check
 
-#      - name: Cargo fmt
-#        # TODO enable that once https://github.com/rust-lang/rustfmt/issues/4477 is resolved
-#        if: runner.os != 'Windows'
-#        run: cargo fmt --all -- --check
+      - name: Cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check --verbose
 
       - name: Debug build
-        run: cargo build --verbose
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --manifest-path cli/Cargo.toml --verbose
 
-      - name: Test
-        run: cargo test --verbose
+      - name: Run node pool
+        run: |
+          docker build -f ci/indy-pool.dockerfile -t test_pool --build-arg pool_ip=10.0.0.2 ci
+          docker network create --subnet=10.0.0.0/8 indy-sdk-network
+          docker run -d --name indy_pool -p 9701-9708:9701-9708 --net=indy-sdk-network test_pool
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --manifest-path cli/Cargo.toml -- verbose
