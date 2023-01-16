@@ -44,10 +44,6 @@ assets = [
 maintainer-scripts = "./debian"
 changelog = "./debian/changelog"
 
-[package.metadata.deb.variants.indy-cli-xenial]
-name = "indy-cli-rs"
-provides = "indy-cli-rs (= 0.1.0)"
-
-[package.metadata.deb.variants.indy-cli-bionic]
+[package.metadata.deb.variants.indy-cli-rs-bionic]
 name = "indy-cli-rs"
 provides = "indy-cli-rs (= 0.1.0)"
