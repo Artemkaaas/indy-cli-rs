@@ -81,8 +81,8 @@ jobs:
         run: cargo check
 
       - name: Cargo fmt
-        # TODO enable that once https://github.com/rust-lang/rustfmt/issues/4477 is resolved
-        if: runner.os != 'Windows'
+#        # TODO enable that once https://github.com/rust-lang/rustfmt/issues/4477 is resolved
+#        if: runner.os != 'Windows'
         run: cargo fmt --all -- --check
 
       - name: Debug build
@@ -95,10 +95,14 @@ jobs:
           colima start 
 
       - name: Run node pool
+        # Currently, Windows runner does not support Linux containers in Docker
+        # See https://github.com/actions/runner-images/issues/1143
+        if: matrix.os != 'windows-latest'
         run: | 
           docker build -f ../ci/indy-pool.dockerfile -t test_pool --build-arg pool_ip=10.0.0.2 ../ci
           docker network create --subnet=10.0.0.0/8 indy-sdk-network
           docker run -d --name indy_pool -p 9701-9708:9701-9708 --net=indy-sdk-network test_pool
 
       - name: Run tests
+        if: matrix.os != 'windows-latest'
         run: cargo test --verbose
