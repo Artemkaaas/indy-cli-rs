@@ -16,6 +16,7 @@ jobs:
     defaults:
       run:
         shell: bash
+        working-directory: cli
 
     steps:
       - uses: actions/checkout@v2
@@ -59,6 +60,9 @@ jobs:
       matrix:
         os: [ macos-latest, windows-latest, ubuntu-latest ]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: cli
 
     steps:
       - name: Checkout
