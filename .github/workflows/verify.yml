@@ -63,6 +63,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
+        shell: bash
         working-directory: cli
     env:
       RUST_TEST_THREADS: 1
