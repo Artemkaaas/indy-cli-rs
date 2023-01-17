@@ -2,18 +2,14 @@ name: verify
 
 on:
   pull_request:
-#    - main
-
-
-env:
-  PKG_NAME: indy-cli-rs
+    branches: [main]
 
 
 jobs:
 
   release-ready:
     runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request' # && github.event.pull_request.base.ref == 'main'
+    if: github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main'
     defaults:
       run:
         shell: bash
@@ -26,7 +22,7 @@ jobs:
         id: current_version
         run: |
           version="$(cargo -q metadata --no-deps \
-            | jq -r '.packages[] | select(.name == "${{ env.PKG_NAME }}") | .version')"
+            | jq -r '.packages[] | select(.name == "indy-cli-rs") | .version')"
           echo "$version"
           echo "::set-output name=current_version::$version"
 
@@ -81,8 +77,8 @@ jobs:
       - name: Cargo check
         run: cargo check
 
-#      - name: Cargo fmt
-#        run: cargo fmt --all -- --check
+      - name: Cargo fmt
+        run: cargo fmt --all -- --check
 
       - name: Debug build
         run: cargo build --verbose
