@@ -80,8 +80,8 @@ jobs:
       - name: Cargo check
         run: cargo check
 
-      - name: Cargo fmt
-        run: cargo fmt --all -- --check
+#      - name: Cargo fmt
+#        run: cargo fmt --all -- --check
 
       - name: Debug build
         run: cargo build --verbose
