@@ -59,7 +59,7 @@ jobs:
   verify:
     strategy:
       matrix:
-        os: [ macos-latest ]
+        os: [ macos-latest, windows-latest, ubuntu-latest ]
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -97,7 +97,7 @@ jobs:
         # See https://github.com/actions/runner-images/issues/1143
         if: matrix.os != 'windows-latest'
         run: |
-          colima start --network-address
+          docker version
           docker build -f ../ci/indy-pool.dockerfile -t test_pool --build-arg pool_ip=10.0.0.2 ../ci
           docker network create --subnet=10.0.0.0/8 indy-sdk-network
           docker run -d --name indy_pool -p 9701-9708:9701-9708 --net=indy-sdk-network test_pool
