@@ -49,12 +49,13 @@ jobs:
         if: steps.release_info.outputs.release_info
         run: exit 1
 
-      - name: Check it can be packaged
-        run: |
-          cargo package
-          # TODO verify that it's not more than crates.io limit (10 MB)
-          ls -la target/package
-          cargo package --list
+        # Uncomment when all dependencies are published
+#      - name: Check it can be packaged
+#        run: |
+#          cargo package
+#          # TODO verify that it's not more than crates.io limit (10 MB)
+#          ls -la target/package
+#          cargo package --list
 
   verify:
     strategy:

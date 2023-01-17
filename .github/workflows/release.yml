@@ -92,7 +92,8 @@ jobs:
 
     publish_crate:
       name: Publish crate
-      if: github.ref == 'refs/heads/main'
+      # Enable this when all dependencies are published
+      if: ${{ false }} #github.ref == 'refs/heads/main'
       runs-on: ubuntu-latest
       needs: [ checks, create_release ]
       defaults:
