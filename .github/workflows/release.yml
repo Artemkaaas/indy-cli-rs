@@ -2,14 +2,14 @@ name: release
 
 on:
   push:
-    branches: [main]
+    branches: [fix-release-workflow]
 
 
 jobs:
 
   checks:
     name: check releases
-    if: github.ref == 'refs/heads/main'
+    # if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       current_version: ${{ steps.current_version.outputs.current_version }}
@@ -62,7 +62,7 @@ jobs:
 
   create_release:
     name: Create release
-    if: github.ref == 'refs/heads/main'
+    # if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     needs: checks
 
@@ -183,7 +183,6 @@ jobs:
 
       - name: Build and pack binary
         id: build_assets
-        env:
         run: |
           cargo build --target ${{ matrix.target }} --locked
           asset_name=indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.zip
