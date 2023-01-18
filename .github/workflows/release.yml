@@ -199,6 +199,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.checks.outputs.upload_url }}
-          asset_path: assets/${{ steps.build_assets.outputs.asset_name }}
+          asset_path: assets/${{ steps.build_assets.outputs.asset_name }}.zip
           asset_name: ${{ steps.build_assets.outputs.asset_name }}
           asset_content_type: application/zip
