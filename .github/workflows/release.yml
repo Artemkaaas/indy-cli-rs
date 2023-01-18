@@ -159,7 +159,7 @@ jobs:
             executable:
             target: x86_64-unknown-linux-gnu
             # using cross here to build against an older glibc for compatibility
-            # use_cross: true
+            use_cross: true
           - arch: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
