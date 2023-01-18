@@ -205,7 +205,7 @@ jobs:
           cp target/${{ matrix.target }}/release/ release-artifacts/
 
       - name: Pack asset
-      - uses: a7ul/tar-action@v1.1.2
+        uses: a7ul/tar-action@v1.1.2
         with:
           command: c
           cwd: release-assets
