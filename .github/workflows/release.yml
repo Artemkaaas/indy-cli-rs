@@ -186,6 +186,7 @@ jobs:
       - name: Build and pack binary
         id: build_assets
         run: |
+          rustup target add ${{ matrix.target }}
           cargo build --target ${{ matrix.target }} --locked
           asset_name=indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.zip
           zip -r -q assets/$asset_name target/${{ matrix.target }}/release/
