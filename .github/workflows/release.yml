@@ -202,7 +202,7 @@ jobs:
       - name: Create release assets directory
         run: |
           mkdir release-assets
-          cp target/${{ matrix.target }}/release/ release-assets/
+          cp -r target/${{ matrix.target }}/release/ release-assets/
 
       - name: Pack asset
         uses: a7ul/tar-action@v1.1.2
