@@ -4,6 +4,9 @@ on:
   push:
     branches: [fix-release-workflow]
 
+permissions:
+  contents: write
+
 
 jobs:
 
