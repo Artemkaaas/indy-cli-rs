@@ -157,7 +157,7 @@ jobs:
           - arch: linux-x86_64
             os: ubuntu-latest
             executable:
-            target: x86_64-unknown-linux-musl
+            target: x86_64-unknown-linux-gnu
             # using cross here to build against an older glibc for compatibility
             # use_cross: true
           - arch: windows-x86_64
@@ -184,6 +184,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain || 'stable' }}
+          targets: ${{ matrix.target }}
 
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
@@ -191,7 +192,6 @@ jobs:
       - name: Build and pack asset
         id: build_asset
         run: |
-          rustup target add ${{ matrix.target }}
           cargo build --target ${{ matrix.target }} --locked --release
           mkdir assets
           sudo apt-get install -y zip
