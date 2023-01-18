@@ -1,7 +1,7 @@
-extern crate dirs;
-
-use std::env;
 use std::path::PathBuf;
+
+#[cfg(test)]
+use std::env;
 
 pub struct EnvironmentUtils {}
 
@@ -9,7 +9,11 @@ impl EnvironmentUtils {
     pub fn indy_home_path() -> PathBuf {
         // TODO: FIXME: Provide better handling for the unknown home path case!!!
         let mut path = dirs::home_dir().unwrap_or(PathBuf::from("/home/indy"));
-        path.push(if cfg!(target_os = "ios") { "Documents/.indy_client" } else { ".indy_client" });
+        path.push(if cfg!(target_os = "ios") {
+            "Documents/.indy_client"
+        } else {
+            ".indy_client"
+        });
         path
     }
 
@@ -25,6 +29,19 @@ impl EnvironmentUtils {
         path
     }
 
+    pub fn wallets_path() -> PathBuf {
+        let mut path = EnvironmentUtils::indy_home_path();
+        path.push("wallets");
+        path
+    }
+
+    pub fn wallet_config_path(id: &str) -> PathBuf {
+        let mut path = Self::wallets_path();
+        path.push(id);
+        path.set_extension("json");
+        path
+    }
+
     pub fn pool_home_path() -> PathBuf {
         let mut path = EnvironmentUtils::indy_home_path();
         path.push("pool");
@@ -37,12 +54,30 @@ impl EnvironmentUtils {
         path
     }
 
+    pub fn pool_transactions_path(pool_name: &str) -> PathBuf {
+        let mut path = EnvironmentUtils::pool_home_path();
+        path.push(pool_name);
+        path.push(pool_name);
+        path.set_extension("txn");
+        path
+    }
+
+    pub fn pool_config_path(id: &str) -> PathBuf {
+        let mut path = Self::pool_home_path();
+        path.push(id);
+        path.push("config");
+        path.set_extension("json");
+        path
+    }
+
+    #[cfg(test)]
     pub fn tmp_path() -> PathBuf {
         let mut path = env::temp_dir();
         path.push("indy_client");
         path
     }
 
+    #[cfg(test)]
     pub fn tmp_file_path(file_name: &str) -> PathBuf {
         let mut path = EnvironmentUtils::tmp_path();
         path.push(file_name);
@@ -54,10 +89,6 @@ impl EnvironmentUtils {
         path.push("history");
         path.push("history.txt");
         path
-    }
-
-    pub fn test_pool_ip() -> String {
-        env::var("TEST_POOL_IP").unwrap_or("127.0.0.1".to_string())
     }
 }
 
@@ -131,11 +162,5 @@ mod tests {
         assert!(path.has_root());
         assert!(path.to_string_lossy().contains("indy_client"));
         assert!(path.to_string_lossy().contains("test.txt"));
-    }
-
-    #[test]
-    fn test_pool_ip_works() {
-        let pool_ip = EnvironmentUtils::test_pool_ip();
-        assert!(!pool_ip.is_empty());
     }
 }
