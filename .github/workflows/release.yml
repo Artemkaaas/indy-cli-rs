@@ -184,7 +184,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: ${{ matrix.toolchain || 'stable' }}
-          targets: ${{ matrix.target }}
 
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
@@ -192,6 +191,7 @@ jobs:
       - name: Build and pack asset
         id: build_asset
         run: |
+          rustup target add ${{ matrix.target }}
           cargo build --target ${{ matrix.target }} --locked --release
           mkdir assets
           sudo apt-get install -y zip
