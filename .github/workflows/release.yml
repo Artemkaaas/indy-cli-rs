@@ -156,6 +156,7 @@ jobs:
         include:
           - arch: linux-x86_64
             os: ubuntu-latest
+            binary:
             target: x86_64-unknown-linux-gnu
             # using cross here to build against an older glibc for compatibility
             # use_cross: true
@@ -191,8 +192,9 @@ jobs:
         id: build_assets
         run: |
           rustup target add ${{ matrix.target }}
-          cargo build --target ${{ matrix.target }} --locked
+          cargo build --target ${{ matrix.target }} --locked --release
           asset_name=indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}
+          mkdir assets
           zip -r -q assets/$asset_name target/${{ matrix.target }}/release/
           echo "::set-output name=asset_name::$asset_name"
         shell: bash
