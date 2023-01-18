@@ -2,7 +2,7 @@
 # https://www.dsr-corporation.com
 # SPDX-License-Identifier: Apache-2.0
 
-name: release
+name: Release
 
 on:
   push:
@@ -15,7 +15,7 @@ permissions:
 jobs:
 
   checks:
-    name: check releases
+    name: Check version & existing release
     # if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
@@ -148,7 +148,7 @@ jobs:
 
 
   publish_assets:
-    name: Publish binary assets
+    name: Publish assets
     #if: github.ref == 'refs/heads/main'
     needs: [ checks, create_release ]
     strategy:
@@ -189,14 +189,28 @@ jobs:
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
 
-      - name: Build and pack asset
-        id: build_asset
+      - name: Build
+        if: ${{ !matrix.useCross }}
+        run: cargo build --target ${{ matrix.target }} --locked --release
+
+      - name: Build (cross)
+        if: ${{ matrix.useCross }}
         run: |
+          cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
           cargo build --target ${{ matrix.target }} --locked --release
-          mkdir assets
-          sudo apt-get install -y zip
-          zip -r -q assets/indy-cli-rs target/${{ matrix.target }}/release/
-        shell: bash
+
+      - name: Create release assets directory
+        run: |
+          mkdir release-assets
+          cp target/${{ matrix.target }}/release/ release-artifacts/
+
+      - name: Pack asset
+      - uses: a7ul/tar-action@v1.1.2
+        with:
+          command: c
+          cwd: release-assets
+          files: .
+          outPath: "indy-cli-rs.tar.gz"
 
       - name: Upload asset to GitHub
         uses: actions/upload-release-asset@v1
@@ -204,6 +218,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: cli/assets/indy-cli-rs.zip
-          asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.zip
-          asset_content_type: application/zip
+          asset_path: cli/indy-cli-rs.tar.gz
+          asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.tar.gz
+          asset_content_type: application/x-gtar

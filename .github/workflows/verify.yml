@@ -2,7 +2,7 @@
 # https://www.dsr-corporation.com
 # SPDX-License-Identifier: Apache-2.0
 
-name: verify
+name: Verify
 
 on:
   pull_request:
@@ -36,7 +36,7 @@ jobs:
           echo "${{ steps.current_version.outputs.current_version }}" | grep -e '^[0-9]\+\.[0-9]\+\.[0-9]\+$'
 
       # TODO improve (DRY): copy-paste from release.yml
-      - name: Get release info
+      - name: Check existing release
         id: release_info
         run: |
           release_info="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
