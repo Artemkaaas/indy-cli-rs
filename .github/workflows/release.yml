@@ -195,7 +195,7 @@ jobs:
           cargo build --target ${{ matrix.target }} --locked --release
           asset_name=indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}
           mkdir assets
-          zip -r -q assets/$asset_name target/${{ matrix.target }}/release/
+          zip -r -q assets/indy-cli-rs target/${{ matrix.target }}/release/
           echo "::set-output name=asset_name::$asset_name"
         shell: bash
 
@@ -205,6 +205,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: cli/assets/${{ steps.build_asset.outputs.asset_name }}.zip
+          asset_path: cli/assets/indy-cli-rs.zip
           asset_name: ${{ steps.build_asset.outputs.asset_name }}
           asset_content_type: application/zip
