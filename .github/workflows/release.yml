@@ -1,3 +1,7 @@
+# Copyright 2023 DSR Corporation, Denver, Colorado.
+# https://www.dsr-corporation.com
+# SPDX-License-Identifier: Apache-2.0
+
 name: release
 
 on:
@@ -31,7 +35,7 @@ jobs:
         id: current_version
         run: |
           version="$(cargo -q metadata --no-deps \
-            | jq -r '.packages[] | select(.name == "$indy-cli-rs") | .version')"
+            | jq -r '.packages[] | select(.name == "indy-cli-rs") | .version')"
           echo "$version"
           echo "::set-output name=current_version::$version"
         shell: bash
