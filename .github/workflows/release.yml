@@ -188,7 +188,7 @@ jobs:
         run: |
           cargo build --target ${{ matrix.target }} --locked
           asset_name=indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.zip
-          zip -r -q assets/$asset_name target/$TARGET/release/
+          zip -r -q assets/$asset_name target/${{ matrix.target }}/release/
           echo "::set-output name=asset_name::$asset_name"
         shell: bash
 
