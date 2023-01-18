@@ -146,7 +146,7 @@ jobs:
   publish_assets:
     name: Publish binary assets
     if: github.ref == 'refs/heads/main'
-    needs: [ checks, create_release, publish_crate ]
+    needs: [ checks, create_release ]
     strategy:
       matrix:
         include:
