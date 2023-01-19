@@ -183,9 +183,7 @@ jobs:
         run: |
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
-          asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}
-          echo asset_exists=$asset_exists >> $GITHUB_OUTPUT
-          echo "Asset already exists: $asset_exists"
+          echo asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}} >> $GITHUB_OUTPUT
 
       - name: Build
         if: ${{ !steps.check_existing.asset_exists && !matrix.use_cross }}
