@@ -219,5 +219,5 @@ jobs:
           file: indy-cli-rs.tar.gz
           tag: v${{ needs.checks.outputs.current_version }}
           release_name: v${{ needs.checks.outputs.current_version }}
-          asset_name: ${{ asset_name }}
+          asset_name: ${{ env.asset_name }}
           overwrite: true
