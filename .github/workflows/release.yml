@@ -21,6 +21,7 @@ jobs:
     outputs:
       current_version: ${{ steps.current_version.outputs.current_version }}
       existing_release_info: ${{ steps.check_existing_release.outputs.release_info }}
+      existing_assets: ${{ steps.check_existing_release.outputs.release_assets }}
       already_in_crates_io: ${{ steps.check_in_crates_io.outputs.already_in_crates_io != '' }}
     defaults:
       run:
@@ -50,8 +51,11 @@ jobs:
           echo "release_info<<${delimiter}" >> $GITHUB_OUTPUT
           echo "$release_info" >> $GITHUB_OUTPUT
           echo "${delimiter}" >> $GITHUB_OUTPUT
-          
           echo "existing release info: $release_info"
+
+          release_assets="$(echo "$release_info" | jq -r '.assets[] | .name')"
+          echo "release_assets=${release_assets}" >> $GITHUB_OUTPUT
+          echo "existing release assets: $release_assets"
         shell: bash
 
       - name: Check if already deployed to crates.io
