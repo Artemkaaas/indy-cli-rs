@@ -184,6 +184,7 @@ jobs:
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
           echo "asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}" >> $GITHUB_OUTPUT
+        shell: bash
 
       - name: Build
         if: ${{ !steps.check_existing.outputs.asset_exists && !matrix.use_cross }}
@@ -198,7 +199,6 @@ jobs:
       - name: Create release assets directory
         if: ${{ !steps.check_existing.outputs.asset_exists }}
         run: |
-          echo ${{ steps.check_existing.outputs.asset_exists }}
           mkdir release-assets
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
