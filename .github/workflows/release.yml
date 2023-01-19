@@ -178,7 +178,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check existing release asset
-        if: $ {{ needs.checks.outputs.existing_assets }}
+        if: ${{ needs.checks.outputs.existing_assets }}
         id: check_existing
         run: |
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
@@ -220,4 +220,3 @@ jobs:
           tag: v${{ needs.checks.outputs.current_version }}
           release_name: v${{ needs.checks.outputs.current_version }}
           asset_name: ${{ env.asset_name }}
-          overwrite: true
