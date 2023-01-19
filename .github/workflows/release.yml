@@ -47,9 +47,9 @@ jobs:
           # Generate random delimiter as suggested in docs
           # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
           delimiter="$(openssl rand -hex 8)"
-          echo release_info<<"$delimiter" >> $GITHUB_OUTPUT
-          echo $release_info >> $GITHUB_OUTPUT
-          echo "$delimiter" >> $GITHUB_OUTPUT
+          echo "release_info<<${delimiter}" >> $GITHUB_OUTPUT
+          echo "$release_info" >> $GITHUB_OUTPUT
+          echo "${delimiter}" >> $GITHUB_OUTPUT
           
           echo "existing release info: $release_info"
         shell: bash
