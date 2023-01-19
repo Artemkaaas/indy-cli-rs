@@ -198,6 +198,7 @@ jobs:
       - name: Create release assets directory
         if: ${{ !steps.check_existing.asset_exists }}
         run: |
+          echo ${{ steps.check_existing.asset_exists }}
           mkdir release-assets
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
