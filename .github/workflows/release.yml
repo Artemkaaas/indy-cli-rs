@@ -130,14 +130,11 @@ jobs:
         shell: bash
 
       - name: Upload crate to GitHub
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: svenstaro/upload-release-action@v2
         with:
-          upload_url: ${{ needs.checks.outputs.upload_url }}
-          asset_path: target/package/${{ steps.build_crate.outputs.asset_name }}
+          file: target/package/${{ steps.build_crate.outputs.asset_name }}
           asset_name: ${{ steps.build_crate.outputs.asset_name }}
-          asset_content_type: application/octet-stream  # TODO check for less generic type
+          overwrite: true
 
 #        - name: Publish to crates.io
 #          if: needs.checks.outputs.already_in_crates_io == 'false'
@@ -156,18 +153,21 @@ jobs:
         include:
           - arch: linux-x86_64
             os: ubuntu-latest
-            executable:
+            artifact: indy-cli-rs
             target: x86_64-unknown-linux-gnu
             # using cross here to build against an older glibc for compatibility
             use_cross: true
           - arch: windows-x86_64
             os: windows-latest
+            artifact: indy-cli-rs.exe
             target: x86_64-pc-windows-msvc
           - arch: darwin-x86_64
             os: macos-11
+            artifact: indy-cli-rs
             target: x86_64-apple-darwin
           - arch: darwin-aarch64
             os: macos-11
+            artifact: indy-cli-rs
             target: aarch64-apple-darwin
             # beta or nightly required for aarch64-apple-darwin target
             toolchain: beta
@@ -202,7 +202,7 @@ jobs:
       - name: Create release assets directory
         run: |
           mkdir release-assets
-          cp -r target/${{ matrix.target }}/release/ release-assets/
+          cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
       - name: Pack asset
         uses: a7ul/tar-action@v1.1.2
@@ -213,11 +213,8 @@ jobs:
           outPath: "indy-cli-rs.tar.gz"
 
       - name: Upload asset to GitHub
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: svenstaro/upload-release-action@v2
         with:
-          upload_url: ${{ needs.create_release.outputs.upload_url }}
-          asset_path: indy-cli-rs.tar.gz
+          file: indy-cli-rs.tar.gz
           asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.tar.gz
-          asset_content_type: application/x-gtar
+          overwrite: true
