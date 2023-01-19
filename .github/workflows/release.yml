@@ -114,16 +114,16 @@ jobs:
         shell: bash
 
       - name: Upload crate to GitHub
+        if: ${{ !contains(fromJSON(needs.checks.outputs.existing_assets), steps.build_crate.outputs.asset_name)}}
         uses: svenstaro/upload-release-action@v2
         with:
           file: target/package/${{ steps.build_crate.outputs.asset_name }}
           asset_name: ${{ steps.build_crate.outputs.asset_name }}
           tag: v${{ needs.checks.outputs.current_version }}
           release_name: v${{ needs.checks.outputs.current_version }}
-          overwrite: true
 
       - name: Publish to crates.io
-        if: needs.checks.outputs.already_in_crates_io == 'false'
+        if: ${{ needs.checks.outputs.already_in_crates_io == 'false' }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: cargo publish
@@ -160,6 +160,8 @@ jobs:
     defaults:
       run:
         working-directory: cli
+    env:
+      asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.tar.gz
 
     runs-on: ${{ matrix.os }}
 
@@ -175,22 +177,34 @@ jobs:
       - name: Cache cargo resources
         uses: Swatinem/rust-cache@v2
 
+      - name: Check existing release asset
+        if: $ {{ needs.checks.outputs.existing_assets }}
+        id: check_existing
+        run: |
+          # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
+          # So here we're using output value with separate conditions for every subsequent step
+          asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), $asset_name)}}
+          echo asset_exists=$asset_exists >> $GITHUB_OUTPUT
+          echo "Asset already exists: $asset_exists"
+
       - name: Build
-        if: ${{ !matrix.use_cross }}
+        if: ${{ !steps.check_existing.asset_exists && !matrix.use_cross }}
         run: cargo build --target ${{ matrix.target }} --locked --release
 
       - name: Build (cross)
-        if: ${{ matrix.use_cross }}
+        if: ${{ !steps.check_existing.asset_exists && matrix.use_cross }}
         run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
           cross build --target ${{ matrix.target }} --locked --release
 
       - name: Create release assets directory
+        if: ${{ !steps.check_existing.asset_exists }}
         run: |
           mkdir release-assets
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
       - name: Pack asset
+        if: ${{ !steps.check_existing.asset_exists }}
         uses: a7ul/tar-action@v1.1.2
         with:
           command: c
@@ -199,10 +213,11 @@ jobs:
           outPath: "indy-cli-rs.tar.gz"
 
       - name: Upload asset to GitHub
+        if: ${{ !steps.check_existing.asset_exists }}
         uses: svenstaro/upload-release-action@v2
         with:
           file: indy-cli-rs.tar.gz
           tag: v${{ needs.checks.outputs.current_version }}
           release_name: v${{ needs.checks.outputs.current_version }}
-          asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.tar.gz
+          asset_name: ${{ asset_name }}
           overwrite: true
