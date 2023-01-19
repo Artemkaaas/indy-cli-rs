@@ -172,7 +172,7 @@ jobs:
         if: ${{ matrix.use_cross }}
         run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
-          cargo build --target ${{ matrix.target }} --locked --release
+          cross build --target ${{ matrix.target }} --locked --release
 
       - name: Create release assets directory
         run: |
