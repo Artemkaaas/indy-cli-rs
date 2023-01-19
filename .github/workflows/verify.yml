@@ -26,8 +26,8 @@ jobs:
         run: |
           version="$(cargo -q metadata --no-deps \
             | jq -r '.packages[] | select(.name == "indy-cli-rs") | .version')"
+          echo "current_version=$version" >> $GITHUB_OUTPUT
           echo "$version"
-          echo "::set-output name=current_version::$version"
 
       - name: Check version format
         run: |

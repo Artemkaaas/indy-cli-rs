@@ -34,8 +34,8 @@ jobs:
         run: |
           version="$(cargo -q metadata --no-deps \
             | jq -r '.packages[] | select(.name == "indy-cli-rs") | .version')"
+          echo "current_version=$version" >> $GITHUB_OUTPUT
           echo "$version"
-          echo "::set-output name=current_version::$version"
         shell: bash
 
       - name: Check existing release
@@ -43,8 +43,8 @@ jobs:
         run: |
           release_info="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
               | jq '.[] | select(.name == "v${{ steps.current_version.outputs.current_version }}")')"
-          echo "::set-output name=release_info::$release_info"
-          echo "$release_info"
+          echo "release_info=$release_info" >> $GITHUB_OUTPUT
+          echo "existing release info: $release_info"
         shell: bash
 
       - name: Check if already deployed to crates.io
@@ -52,8 +52,8 @@ jobs:
         run: |
           out="$(curl -s https://crates.io/api/v1/crates/indy-cli-rs | jq -r '.versions[] | .num' \
             | grep '^${{ steps.current_version.outputs.current_version }}$')"
+          echo "already_in_crates_io=$out" >> $GITHUB_OUTPUT
           echo "in crates.io check: $out"
-          echo "::set-output name=already_in_crates_io::$out"
         shell: bash {0}  # to opt-out of default fail-fast behavior
 
   create_release:
@@ -99,7 +99,7 @@ jobs:
           cargo package --list
           
           asset_name="$(find target/package -name '*.crate' -printf '%f')"
-          echo "::set-output name=asset_name::$asset_name"
+          echo "asset_name=$asset_name" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Upload crate to GitHub
