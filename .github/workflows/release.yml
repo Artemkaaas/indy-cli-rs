@@ -165,11 +165,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build
-        if: ${{ !matrix.useCross }}
+        if: ${{ !matrix.use_cross }}
         run: cargo build --target ${{ matrix.target }} --locked --release
 
       - name: Build (cross)
-        if: ${{ matrix.useCross }}
+        if: ${{ matrix.use_cross }}
         run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
           cargo build --target ${{ matrix.target }} --locked --release
