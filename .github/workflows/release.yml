@@ -43,7 +43,14 @@ jobs:
         run: |
           release_info="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
               | jq '.[] | select(.name == "v${{ steps.current_version.outputs.current_version }}")')"
-          echo release_info=$release_info >> $GITHUB_OUTPUT
+          
+          # Generate random delimiter as suggested in docs
+          # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
+          delimiter="$(openssl rand -hex 8)"
+          echo release_info<<$delimiter >> $GITHUB_OUTPUT
+          echo $release_info >> $GITHUB_OUTPUT
+          echo $delimiter >> $GITHUB_OUTPUT
+          
           echo "existing release info: $release_info"
         shell: bash
 
