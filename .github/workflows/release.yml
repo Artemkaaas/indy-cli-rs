@@ -107,6 +107,8 @@ jobs:
         with:
           file: target/package/${{ steps.build_crate.outputs.asset_name }}
           asset_name: ${{ steps.build_crate.outputs.asset_name }}
+          tag: v${{ needs.checks.outputs.current_version }}
+          release_name: v${{ needs.checks.outputs.current_version }}
           overwrite: true
 
       - name: Publish to crates.io
@@ -189,5 +191,7 @@ jobs:
         uses: svenstaro/upload-release-action@v2
         with:
           file: indy-cli-rs.tar.gz
+          tag: v${{ needs.checks.outputs.current_version }}
+          release_name: v${{ needs.checks.outputs.current_version }}
           asset_name: indy-cli-rs-${{ needs.checks.outputs.current_version }}-${{ matrix.arch }}.tar.gz
           overwrite: true
