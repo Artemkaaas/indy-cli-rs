@@ -53,7 +53,7 @@ jobs:
           echo "${delimiter}" >> $GITHUB_OUTPUT
           echo "existing release info: $release_info"
 
-          release_assets="$(echo "$release_info" | jq -r '.assets[] | .name' --argjson)"
+          release_assets="$(echo "$release_info" | jq -r '[.assets[].name]')"
           echo "release_assets=${release_assets}" >> $GITHUB_OUTPUT
           echo "existing release assets: $release_assets"
         shell: bash
