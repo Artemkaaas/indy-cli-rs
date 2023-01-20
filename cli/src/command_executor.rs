@@ -1,7 +1,6 @@
 use unescape::unescape;
 
-use aries_askar::any::AnyStore;
-use indy_vdr::pool::LocalPool;
+use indy_utils::did::DidValue;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, HashMap},
@@ -9,6 +8,7 @@ use std::{
     rc::Rc,
 };
 
+use crate::tools::{pool::Pool, wallet::Wallet};
 use linefeed::{ReadResult, Reader};
 
 #[derive(Debug)]
@@ -228,8 +228,9 @@ pub struct CommandContext {
     main_prompt: RefCell<String>,
     sub_prompts: RefCell<BTreeMap<usize, String>>,
     is_exit: RefCell<bool>,
-    pool: RefCell<Option<Rc<LocalPool>>>,
-    store: RefCell<Option<Rc<AnyStore>>>,
+    pool: RefCell<Option<Rc<Pool>>>,
+    wallet: RefCell<Option<Rc<Wallet>>>,
+    did: RefCell<Option<Rc<DidValue>>>,
     int_values: RefCell<HashMap<&'static str, i32>>,
     uint_values: RefCell<HashMap<&'static str, u64>>,
     string_values: RefCell<HashMap<&'static str, String>>,
@@ -258,11 +259,12 @@ impl Debug for CommandContext {
 impl CommandContext {
     pub fn new() -> CommandContext {
         CommandContext {
-            main_prompt: RefCell::new("indy".to_owned()),
+            main_prompt: RefCell::new("indy-cli-rs".to_owned()),
             sub_prompts: RefCell::new(BTreeMap::new()),
             is_exit: RefCell::new(false),
             pool: RefCell::new(None),
-            store: RefCell::new(None),
+            wallet: RefCell::new(None),
+            did: RefCell::new(None),
             int_values: RefCell::new(HashMap::new()),
             uint_values: RefCell::new(HashMap::new()),
             string_values: RefCell::new(HashMap::new()),
@@ -304,20 +306,38 @@ impl CommandContext {
         *self.is_exit.borrow()
     }
 
-    pub fn set_store_value(&self, value: Option<AnyStore>) {
-        self.store.replace(value.map(|value| Rc::new(value)));
+    pub fn set_wallet(&self, value: Option<Wallet>) {
+        match value {
+            Some(value) => self.wallet.replace(Some(Rc::new(value))),
+            None => self.wallet.replace(None),
+        };
     }
 
-    pub fn get_store_value(&self) -> Option<Rc<AnyStore>> {
-        self.store.borrow().clone()
+    pub fn get_wallet(&self) -> Option<Rc<Wallet>> {
+        self.wallet.borrow().clone()
     }
 
-    pub fn set_pool_value(&self, value: Option<LocalPool>) {
+    pub fn take_wallet(&self) -> Option<Rc<Wallet>> {
+        self.wallet.take()
+    }
+
+    pub fn set_pool(&self, value: Option<Pool>) {
         self.pool.replace(value.map(|value| Rc::new(value)));
     }
 
-    pub fn get_pool_value(&self) -> Option<Rc<LocalPool>> {
+    pub fn get_pool(&self) -> Option<Rc<Pool>> {
         self.pool.borrow().clone()
+    }
+
+    pub fn set_did(&self, value: Option<DidValue>) {
+        match value {
+            Some(value) => self.did.replace(Some(Rc::new(value))),
+            None => self.did.replace(None),
+        };
+    }
+
+    pub fn get_did(&self) -> Option<Rc<DidValue>> {
+        self.did.borrow().clone()
     }
 
     pub fn set_uint_value(&self, key: &'static str, value: Option<u64>) {

@@ -5,7 +5,6 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
     tools::pool::Pool,
     utils::table::print_list_table,
 };
@@ -25,8 +24,8 @@ pub mod list_command {
 
         print_list_table(&pools, &[("pool", "Pool")], "There are no pools defined");
 
-        if let Some((_, cur_pool)) = get_connected_pool_with_name(ctx) {
-            println_succ!("Current pool \"{}\"", cur_pool);
+        if let Some(pool) = ctx.get_connected_pool() {
+            println_succ!("Current pool \"{}\"", pool.name);
         }
 
         trace!("execute <<");
@@ -52,6 +51,7 @@ pub fn pool_list() -> Vec<String> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod list {
         use super::*;

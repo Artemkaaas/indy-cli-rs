@@ -5,7 +5,6 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
     tools::wallet::Wallet,
     utils::table::print_list_table,
 };
@@ -26,8 +25,8 @@ pub mod list_command {
             "There are no wallets",
         );
 
-        if let Some((_, cur_wallet)) = get_opened_wallet(ctx) {
-            println_succ!("Current wallet \"{}\"", cur_wallet);
+        if let Some(wallet) = ctx.get_opened_wallet() {
+            println_succ!("Current wallet \"{}\"", wallet.name);
         }
 
         trace!("execute << ");
@@ -38,6 +37,7 @@ pub mod list_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, setup_with_wallet, tear_down, tear_down_with_wallet};
 
     mod list {
         use super::*;

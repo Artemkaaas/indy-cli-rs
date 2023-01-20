@@ -5,9 +5,11 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
-    tools::wallet::{Credentials, Wallet},
-    utils::wallet_directory::{WalletConfig, WalletDirectory},
+    params_parser::ParamParser,
+    tools::wallet::{
+        directory::{WalletConfig, WalletDirectory},
+        Credentials, Wallet,
+    },
 };
 
 pub mod create_command {
@@ -33,16 +35,14 @@ pub mod create_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let id = get_str_param("name", params).map_err(error_err!())?;
-        let key = get_str_param("key", params).map_err(error_err!())?;
-        let key_derivation_method = get_opt_str_param("key_derivation_method", params)?;
-        let storage_type = get_opt_str_param("storage_type", params)
-            .map_err(error_err!())?
-            .unwrap_or("default");
-        let storage_config =
-            get_opt_object_param("storage_config", params).map_err(error_err!())?;
-        let storage_credentials =
-            get_opt_object_param("storage_credentials", params).map_err(error_err!())?;
+        let id = ParamParser::get_str_param("name", params)?;
+        let key = ParamParser::get_str_param("key", params)?;
+        let key_derivation_method =
+            ParamParser::get_opt_str_param("key_derivation_method", params)?;
+        let storage_type =
+            ParamParser::get_opt_str_param("storage_type", params)?.unwrap_or("default");
+        let storage_config = ParamParser::get_opt_object_param("storage_config", params)?;
+        let storage_credentials = ParamParser::get_opt_object_param("storage_credentials", params)?;
 
         let config = WalletConfig {
             id: id.to_string(),
@@ -52,9 +52,8 @@ pub mod create_command {
         let credentials = Credentials {
             key: key.to_string(),
             key_derivation_method: key_derivation_method.map(String::from),
-            rekey: None,
-            rekey_derivation_method: None,
             storage_credentials,
+            ..Credentials::default()
         };
 
         trace!("Wallet::create_wallet try: config {:?}", config);
@@ -75,6 +74,7 @@ pub mod create_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, setup_with_wallet, tear_down, tear_down_with_wallet};
 
     mod create {
         use super::*;

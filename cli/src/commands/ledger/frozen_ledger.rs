@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
     utils::table::print_list_table,
 };
@@ -26,24 +26,18 @@ pub mod ledgers_freeze_command {
 
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
-        let ledgers_ids = get_number_tuple_array_param("ledgers_ids", params);
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let ledgers_ids = ParamParser::get_number_tuple_array_param("ledgers_ids", params);
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let wallet = ctx.ensure_opened_wallet()?;
 
         let mut request =
             Ledger::build_ledgers_freeze_request(pool.as_deref(), &submitter_did, ledgers_ids?)
                 .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response) = send_write_request!(
-            &ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response) =
+            send_write_request!(&ctx, params, &mut request, &wallet, &submitter_did);
 
         let result = handle_transaction_response(response)?;
 
@@ -66,13 +60,13 @@ pub mod get_frozen_ledgers_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
         let request = Ledger::build_get_frozen_ledgers_request(pool.as_deref(), &submitter_did)
             .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response) = send_read_request!(&ctx, params, &request, Some(&submitter_did));
+        let (_, response) = send_read_request!(&ctx, params, &request);
         let handle_response = handle_transaction_response(response)?;
 
         // Flattering ap into vector
@@ -122,6 +116,7 @@ pub mod get_frozen_ledgers_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod frozen_ledgers {
         use super::*;

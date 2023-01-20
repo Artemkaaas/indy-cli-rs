@@ -3,11 +3,7 @@
     https://www.dsr-corporation.com
     SPDX-License-Identifier: Apache-2.0
 */
-use crate::{
-    command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
-    tools::pool::Pool,
-};
+use crate::command_executor::{Command, CommandContext, CommandMetadata, CommandParams};
 
 pub mod refresh_command {
     use super::*;
@@ -21,13 +17,12 @@ pub mod refresh_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let pool_name = ensure_connected_pool_name(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
 
-        Pool::refresh(&pool_name, &pool)
+        pool.refresh()
             .map_err(|err| println_err!("Unable to refresh pool. Reason: {}", err.message(None)))?;
 
-        println_succ!("Pool \"{}\"  has been refreshed", pool_name);
+        println_succ!("Pool \"{}\"  has been refreshed", pool.name);
 
         trace!("execute <<");
         Ok(())
@@ -37,6 +32,7 @@ pub mod refresh_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod refresh {
         use super::*;

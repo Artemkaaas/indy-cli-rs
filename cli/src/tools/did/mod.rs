@@ -12,7 +12,8 @@ use crate::{
     utils::futures::block_on,
 };
 
-use aries_askar::{any::AnyStore, Entry, EntryTag};
+use crate::tools::wallet::Wallet;
+use aries_askar::{Entry, EntryTag};
 use indy_utils::{base58, did::DidValue, keys::EncodedVerKey, Qualifiable};
 
 use self::{
@@ -34,7 +35,7 @@ pub struct DidInfo {
 
 impl Did {
     pub fn create(
-        store: &AnyStore,
+        store: &Wallet,
         did: Option<&str>,
         seed: Option<&str>,
         metadata: Option<&str>,
@@ -78,17 +79,16 @@ impl Did {
                 next_verkey: None,
             };
 
-            Self::store(store, &did_info, Some(&tags), true).await?;
+            let value = serde_json::to_vec(&did_info)?;
+            store
+                .store_record(CATEGORY_DID, &did_info.did, &value, Some(&tags), true)
+                .await?;
 
             Ok((did, verkey))
         })
     }
 
-    pub fn replace_keys_start(
-        store: &AnyStore,
-        did: &str,
-        seed: Option<&str>,
-    ) -> CliResult<String> {
+    pub fn replace_keys_start(store: &Wallet, did: &str, seed: Option<&str>) -> CliResult<String> {
         block_on(async move {
             let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
                 .await?
@@ -101,13 +101,22 @@ impl Did {
 
             did_info.next_verkey = Some(verkey.clone());
 
-            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
+            let value = serde_json::to_vec(&did_info)?;
+            store
+                .store_record(
+                    CATEGORY_DID,
+                    &did_info.did,
+                    &value,
+                    Some(&did_entry.tags),
+                    false,
+                )
+                .await?;
 
             Ok(verkey)
         })
     }
 
-    pub fn replace_keys_apply(store: &AnyStore, did: &str) -> CliResult<()> {
+    pub fn replace_keys_apply(store: &Wallet, did: &str) -> CliResult<()> {
         block_on(async move {
             let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
                 .await?
@@ -122,13 +131,22 @@ impl Did {
             did_info.verkey = next_verkey;
             did_info.next_verkey = None;
 
-            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
+            let value = serde_json::to_vec(&did_info)?;
+            store
+                .store_record(
+                    CATEGORY_DID,
+                    &did_info.did,
+                    &value,
+                    Some(&did_entry.tags),
+                    false,
+                )
+                .await?;
 
             Ok(())
         })
     }
 
-    pub fn set_metadata(store: &AnyStore, did: &str, metadata: &str) -> CliResult<()> {
+    pub fn set_metadata(store: &Wallet, did: &str, metadata: &str) -> CliResult<()> {
         block_on(async move {
             let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
                 .await?
@@ -138,13 +156,22 @@ impl Did {
 
             did_info.metadata = Some(metadata.to_string());
 
-            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
+            let value = serde_json::to_vec(&did_info)?;
+            store
+                .store_record(
+                    CATEGORY_DID,
+                    &did_info.did,
+                    &value,
+                    Some(&did_entry.tags),
+                    false,
+                )
+                .await?;
 
             Ok(())
         })
     }
 
-    pub fn get(store: &AnyStore, did: &DidValue) -> CliResult<DidInfo> {
+    pub fn get(store: &Wallet, did: &DidValue) -> CliResult<DidInfo> {
         block_on(async move {
             Self::fetch_record(store, &did.to_string(), true)
                 .await?
@@ -155,12 +182,10 @@ impl Did {
         })
     }
 
-    pub fn list(store: &AnyStore) -> CliResult<Vec<DidInfo>> {
+    pub fn list(store: &Wallet) -> CliResult<Vec<DidInfo>> {
         block_on(async move {
-            let mut session = store.session(None).await?;
-
-            session
-                .fetch_all(CATEGORY_DID, None, None, false)
+            store
+                .fetch_all_record(CATEGORY_DID)
                 .await?
                 .iter()
                 .map(|did| serde_json::from_slice(&did.value).map_err(CliError::from))
@@ -175,7 +200,7 @@ impl Did {
             .map_err(CliError::from)
     }
 
-    pub fn qualify(store: &AnyStore, did: &DidValue, method: &str) -> CliResult<String> {
+    pub fn qualify(store: &Wallet, did: &DidValue, method: &str) -> CliResult<DidValue> {
         block_on(async {
             let (entry, did_info) = Self::fetch_record(store, &did.to_string(), true)
                 .await?
@@ -185,22 +210,25 @@ impl Did {
 
             let qualified_did = did
                 .to_qualified(method)
-                .map(|did| did.to_string())
                 .map_err(|_| CliError::InvalidInput(format!("Invalid DID {} provided.", did)))?;
 
             Self::remove(store, &did.to_string()).await?;
 
             let did_info = DidInfo {
-                did: qualified_did.clone(),
+                did: qualified_did.to_string(),
                 ..did_info
             };
-            Self::store(store, &did_info, Some(&entry.tags), true).await?;
+
+            let value = serde_json::to_vec(&did_info)?;
+            store
+                .store_record(CATEGORY_DID, &did_info.did, &value, Some(&entry.tags), true)
+                .await?;
 
             Ok(qualified_did)
         })
     }
 
-    pub async fn sign(store: &AnyStore, did: &str, bytes: &[u8]) -> CliResult<Vec<u8>> {
+    pub async fn sign(store: &Wallet, did: &str, bytes: &[u8]) -> CliResult<Vec<u8>> {
         let (_, did_info) = Self::fetch_record(store, &did, true)
             .await?
             .ok_or_else(|| {
@@ -210,44 +238,16 @@ impl Did {
         Key::sign(store, &did_info.verkey, bytes).await
     }
 
-    async fn store(
-        store: &AnyStore,
-        did: &DidInfo,
-        tags: Option<&[EntryTag]>,
-        new: bool,
-    ) -> CliResult<()> {
-        let mut session = store.session(None).await?;
-
-        let value_bytes = serde_json::to_vec(&did)?;
-
-        if new {
-            session
-                .insert(CATEGORY_DID, &did.did, &value_bytes, tags, None)
-                .await
-                .map_err(CliError::from)
-        } else {
-            session
-                .replace(CATEGORY_DID, &did.did, &value_bytes, tags, None)
-                .await
-                .map_err(CliError::from)
-        }
-    }
-
-    async fn remove(store: &AnyStore, name: &str) -> CliResult<()> {
-        let mut session = store.session(None).await?;
-        session
-            .remove(CATEGORY_DID, name)
-            .await
-            .map_err(CliError::from)
+    async fn remove(store: &Wallet, name: &str) -> CliResult<()> {
+        store.remove_record(CATEGORY_DID, name).await
     }
 
     async fn fetch_record(
-        store: &AnyStore,
+        store: &Wallet,
         name: &str,
         for_update: bool,
     ) -> CliResult<Option<(Entry, DidInfo)>> {
-        let mut session = store.session(None).await?;
-        let entry = session.fetch(CATEGORY_DID, &name, for_update).await?;
+        let entry = store.fetch_record(CATEGORY_DID, name, for_update).await?;
         match entry {
             Some(entry) => {
                 let did_info: DidInfo = serde_json::from_slice(&entry.value)?;

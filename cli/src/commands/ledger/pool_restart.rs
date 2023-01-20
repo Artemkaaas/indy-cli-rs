@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
     utils::table::print_table,
 };
@@ -33,25 +33,24 @@ pub mod pool_restart_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let pool_name = ensure_connected_pool_name(&ctx)?;
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
 
-        let action = get_str_param("action", params).map_err(error_err!())?;
-        let datetime = get_opt_str_param("datetime", params).map_err(error_err!())?;
-        let nodes = get_opt_str_array_param("nodes", params).map_err(error_err!())?;
-        let timeout = get_opt_number_param::<i64>("timeout", params).map_err(error_err!())?;
+        let action = ParamParser::get_str_param("action", params)?;
+        let datetime = ParamParser::get_opt_str_param("datetime", params)?;
+        let nodes = ParamParser::get_opt_str_array_param("nodes", params)?;
+        let timeout = ParamParser::get_opt_number_param::<i64>("timeout", params)?;
 
         let mut request =
             Ledger::indy_build_pool_restart_request(Some(&pool), &submitter_did, action, datetime)
-                .map_err(|err| println_err!("{}", err.message(Some(&pool_name))))?;
+                .map_err(|err| println_err!("{}", err.message(Some(&pool.name))))?;
 
         let response = if nodes.is_some() || timeout.is_some() {
-            sign_and_submit_action(&store, &pool, &submitter_did, &mut request, nodes, timeout)
+            sign_and_submit_action(&wallet, &pool, &submitter_did, &mut request, nodes, timeout)
                 .map_err(|err| println_err!("{}", err.message(None)))?
         } else {
-            Ledger::sign_and_submit_request(&pool, &store, &submitter_did, &mut request)
+            Ledger::sign_and_submit_request(&pool, &wallet, &submitter_did, &mut request)
                 .map_err(|err| println_err!("{}", err.message(None)))?
         };
 
@@ -96,7 +95,10 @@ pub mod pool_restart_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::tests::use_trustee;
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::tests::use_trustee,
+    };
 
     mod pool_restart {
         use super::*;

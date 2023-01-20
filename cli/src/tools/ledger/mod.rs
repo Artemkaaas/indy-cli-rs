@@ -12,7 +12,7 @@ use crate::{
     utils::futures::block_on,
 };
 
-use aries_askar::any::AnyStore;
+use crate::tools::{pool::Pool, wallet::Wallet};
 use indy_utils::did::DidValue;
 use indy_vdr::{
     ledger::{
@@ -29,7 +29,7 @@ use indy_vdr::{
     },
     pool::{
         helpers::{perform_ledger_action, perform_ledger_request},
-        LocalPool, NodeReplies, Pool, PreparedRequest, ProtocolVersion, RequestResult,
+        NodeReplies, Pool as PoolImpl, PreparedRequest, ProtocolVersion, RequestResult,
     },
 };
 use serde_json::Value as JsonValue;
@@ -43,8 +43,8 @@ pub struct Ledger {}
 
 impl Ledger {
     pub fn sign_and_submit_request(
-        pool: &LocalPool,
-        store: &AnyStore,
+        pool: &Pool,
+        store: &Wallet,
         submitter_did: &DidValue,
         request: &mut PreparedRequest,
     ) -> CliResult<String> {
@@ -55,12 +55,12 @@ impl Ledger {
         })
     }
 
-    pub fn submit_request(pool: &LocalPool, request: &PreparedRequest) -> CliResult<String> {
+    pub fn submit_request(pool: &Pool, request: &PreparedRequest) -> CliResult<String> {
         block_on(async { Self::_submit_request(request, pool).await })
     }
 
     pub fn submit_action(
-        pool: &LocalPool,
+        pool: &Pool,
         request: &PreparedRequest,
         nodes: Option<&str>,
         timeout: Option<i64>,
@@ -72,7 +72,7 @@ impl Ledger {
 
         block_on(async {
             let (request_result, _) = perform_ledger_action(
-                pool,
+                &pool.pool,
                 request.req_id.to_string(),
                 request.req_json.to_string(),
                 nodes,
@@ -87,7 +87,7 @@ impl Ledger {
     }
 
     pub fn sign_request(
-        store: &AnyStore,
+        store: &Wallet,
         did: &DidValue,
         request: &mut PreparedRequest,
     ) -> CliResult<()> {
@@ -98,7 +98,7 @@ impl Ledger {
     }
 
     pub fn multi_sign_request(
-        store: &AnyStore,
+        store: &Wallet,
         did: &DidValue,
         request: &mut PreparedRequest,
     ) -> CliResult<()> {
@@ -111,7 +111,7 @@ impl Ledger {
     }
 
     pub fn build_nym_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         target_did: &DidValue,
         verkey: Option<&str>,
@@ -130,7 +130,7 @@ impl Ledger {
     }
 
     pub fn build_get_nym_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         target_did: &DidValue,
     ) -> CliResult<PreparedRequest> {
@@ -140,7 +140,7 @@ impl Ledger {
     }
 
     pub fn build_attrib_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         target_did: &DidValue,
         hash: Option<&str>,
@@ -159,7 +159,7 @@ impl Ledger {
     }
 
     pub fn build_get_attrib_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         target_did: &DidValue,
         raw: Option<&str>,
@@ -178,7 +178,7 @@ impl Ledger {
     }
 
     pub fn build_schema_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         schema: Schema,
     ) -> CliResult<PreparedRequest> {
@@ -188,7 +188,7 @@ impl Ledger {
     }
 
     pub fn build_get_schema_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         id: &SchemaId,
     ) -> CliResult<PreparedRequest> {
@@ -198,7 +198,7 @@ impl Ledger {
     }
 
     pub fn build_cred_def_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         cred_def: CredentialDefinition,
     ) -> CliResult<PreparedRequest> {
@@ -208,7 +208,7 @@ impl Ledger {
     }
 
     pub fn build_get_validator_info_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
     ) -> CliResult<PreparedRequest> {
         Self::_request_builder(pool)
@@ -217,7 +217,7 @@ impl Ledger {
     }
 
     pub fn build_get_cred_def_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         id: &CredentialDefinitionId,
     ) -> CliResult<PreparedRequest> {
@@ -227,7 +227,7 @@ impl Ledger {
     }
 
     pub fn build_node_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         target_did: &DidValue,
         node_data: NodeOperationData,
@@ -238,7 +238,7 @@ impl Ledger {
     }
 
     pub fn indy_build_pool_config_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         writes: bool,
         force: bool,
@@ -249,7 +249,7 @@ impl Ledger {
     }
 
     pub fn indy_build_pool_restart_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         action: &str,
         datetime: Option<&str>,
@@ -260,7 +260,7 @@ impl Ledger {
     }
 
     pub fn indy_build_pool_upgrade_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         name: &str,
         version: &str,
@@ -296,7 +296,7 @@ impl Ledger {
     }
 
     pub fn build_auth_rule_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         txn_type: &str,
         action: &str,
@@ -335,7 +335,7 @@ impl Ledger {
     }
 
     pub fn build_auth_rules_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         rules: &str,
     ) -> CliResult<PreparedRequest> {
@@ -347,7 +347,7 @@ impl Ledger {
     }
 
     pub fn build_get_auth_rule_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         auth_type: Option<&str>,
         auth_action: Option<&str>,
@@ -368,7 +368,7 @@ impl Ledger {
     }
 
     pub fn build_txn_author_agreement_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         text: Option<&str>,
         version: &str,
@@ -387,7 +387,7 @@ impl Ledger {
     }
 
     pub fn build_disable_all_txn_author_agreements_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
     ) -> CliResult<PreparedRequest> {
         Self::_request_builder(pool)
@@ -396,7 +396,7 @@ impl Ledger {
     }
 
     pub fn build_acceptance_mechanisms_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         aml: &str,
         version: &str,
@@ -415,7 +415,7 @@ impl Ledger {
     }
 
     pub fn build_get_acceptance_mechanisms_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         timestamp: Option<u64>,
         version: Option<&str>,
@@ -430,7 +430,7 @@ impl Ledger {
     }
 
     pub fn build_get_txn_author_agreement_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: Option<&DidValue>,
         data: Option<&str>,
     ) -> CliResult<PreparedRequest> {
@@ -445,7 +445,7 @@ impl Ledger {
     }
 
     pub fn append_txn_author_agreement_acceptance_to_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         request: &mut PreparedRequest,
         text: Option<&str>,
         version: Option<&str>,
@@ -474,7 +474,7 @@ impl Ledger {
     }
 
     pub fn build_ledgers_freeze_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
         ledgers_ids: Vec<u64>,
     ) -> CliResult<PreparedRequest> {
@@ -484,7 +484,7 @@ impl Ledger {
     }
 
     pub fn build_get_frozen_ledgers_request(
-        pool: Option<&LocalPool>,
+        pool: Option<&Pool>,
         submitter_did: &DidValue,
     ) -> CliResult<PreparedRequest> {
         Self::_request_builder(pool)
@@ -492,13 +492,13 @@ impl Ledger {
             .map_err(CliError::from)
     }
 
-    fn _request_builder(pool: Option<&LocalPool>) -> RequestBuilder {
-        pool.map(|pool| pool.get_request_builder())
+    fn _request_builder(pool: Option<&Pool>) -> RequestBuilder {
+        pool.map(|pool| pool.pool.get_request_builder())
             .unwrap_or_else(|| RequestBuilder::new(ProtocolVersion::Node1_4))
     }
 
-    async fn _submit_request(request: &PreparedRequest, pool: &LocalPool) -> CliResult<String> {
-        let (request_result, _) = perform_ledger_request(pool, request).await?;
+    async fn _submit_request(request: &PreparedRequest, pool: &Pool) -> CliResult<String> {
+        let (request_result, _) = perform_ledger_request(&pool.pool, request).await?;
         match request_result {
             RequestResult::Reply(message) => Ok(message),
             RequestResult::Failed(error) => Err(error.into()),
@@ -507,7 +507,7 @@ impl Ledger {
 
     async fn _sign(
         request: &mut PreparedRequest,
-        store: &AnyStore,
+        store: &Wallet,
         submitter_did: &DidValue,
     ) -> CliResult<Vec<u8>> {
         let sig_bytes = request.get_signature_input()?;

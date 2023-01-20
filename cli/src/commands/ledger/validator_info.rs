@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
 };
 
@@ -31,21 +31,21 @@ pub mod get_validator_info_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool_handle(&ctx)?;
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
 
-        let nodes = get_opt_str_array_param("nodes", params).map_err(error_err!())?;
-        let timeout = get_opt_number_param::<i64>("timeout", params).map_err(error_err!())?;
+        let nodes = ParamParser::get_opt_str_array_param("nodes", params)?;
+        let timeout = ParamParser::get_opt_number_param::<i64>("timeout", params)?;
 
         let mut request = Ledger::build_get_validator_info_request(Some(&pool), &submitter_did)
             .map_err(|err| println_err!("{}", err.message(None)))?;
 
         let response = if nodes.is_some() || timeout.is_some() {
-            sign_and_submit_action(&store, &pool, &submitter_did, &mut request, nodes, timeout)
+            sign_and_submit_action(&wallet, &pool, &submitter_did, &mut request, nodes, timeout)
                 .map_err(|err| println_err!("{}", err.message(None)))?
         } else {
-            Ledger::sign_and_submit_request(&pool, &store, &submitter_did, &mut request)
+            Ledger::sign_and_submit_request(&pool, &wallet, &submitter_did, &mut request)
                 .map_err(|err| println_err!("{}", err.message(None)))?
         };
 
@@ -95,7 +95,10 @@ pub mod get_validator_info_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::tests::use_trustee;
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::tests::use_trustee,
+    };
 
     mod get_validator_info {
         use super::*;

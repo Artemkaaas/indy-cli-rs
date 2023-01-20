@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{parse_transaction_response, Ledger, Response},
     utils::table::print_table,
 };
@@ -32,18 +32,17 @@ pub mod endorse_transaction_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let wallet = ensure_opened_wallet(&ctx)?;
-        let wallet_name = ensure_opened_wallet_name(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
 
-        let param_txn = get_opt_str_param("txn", params).map_err(error_err!())?;
+        let param_txn = ParamParser::get_opt_str_param("txn", params)?;
 
         let mut request = get_transaction_to_use!(ctx, param_txn);
 
         Ledger::multi_sign_request(&wallet, &submitter_did, &mut request)
-            .map_err(|err| println_err!("{}", err.message(Some(&wallet_name))))?;
+            .map_err(|err| println_err!("{}", err.message(Some(&wallet.name))))?;
 
-        let (_, response) = send_request!(&ctx, params, &request, None, Some(&submitter_did), true);
+        let (_, response) = send_request!(&ctx, params, &request, true);
 
         let (metadata_headers, metadata, data) = handle_transaction_response(response)
             .and_then(|result| parse_transaction_response(result))?;

@@ -8,8 +8,8 @@ use crate::{
         wait_for_user_reply, Command, CommandContext, CommandMetadata, CommandParams,
         DynamicCompletionType,
     },
-    commands::*,
     ledger::get_active_transaction_author_agreement,
+    params_parser::ParamParser,
     tools::pool::Pool,
 };
 
@@ -52,17 +52,16 @@ pub mod connect_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let name = get_str_param("name", params).map_err(error_err!())?;
-        let protocol_version = get_opt_number_param::<usize>("protocol-version", params)
-            .map_err(error_err!())?
-            .unwrap_or(get_pool_protocol_version(ctx));
-        let timeout = get_opt_number_param::<i64>("timeout", params).map_err(error_err!())?;
+        let name = ParamParser::get_str_param("name", params)?;
+        let protocol_version =
+            ParamParser::get_opt_number_param::<usize>("protocol-version", params)?
+                .unwrap_or(ctx.get_pool_protocol_version());
+        let timeout = ParamParser::get_opt_number_param::<i64>("timeout", params)?;
         let extended_timeout =
-            get_opt_number_param::<i64>("extended-timeout", params).map_err(error_err!())?;
-        let pre_ordered_nodes =
-            get_opt_str_array_param("pre-ordered-nodes", params).map_err(error_err!())?;
+            ParamParser::get_opt_number_param::<i64>("extended-timeout", params)?;
+        let pre_ordered_nodes = ParamParser::get_opt_str_array_param("pre-ordered-nodes", params)?;
         let number_read_nodes =
-            get_opt_number_param::<usize>("number-read-nodes", params).map_err(error_err!())?;
+            ParamParser::get_opt_number_param::<usize>("number-read-nodes", params)?;
         let protocol_version = ProtocolVersion::from_id(protocol_version as i64).map_err(|_| {
             println_err!("Unexpected Pool protocol version \"{}\".", protocol_version)
         })?;
@@ -76,17 +75,17 @@ pub mod connect_command {
             ..PoolConfig::default()
         };
 
-        if let Some((pool, name)) = get_connected_pool_with_name(ctx) {
-            close_pool(ctx, &pool, &name)?;
+        if let Some(pool) = ctx.get_connected_pool() {
+            close_pool(ctx, &pool)?;
         }
 
         let pool = Pool::open(name, config, pre_ordered_nodes)
             .map_err(|err| println_err!("{}", err.message(Some(&name))))?;
 
-        set_connected_pool(ctx, Some((pool, name.to_owned())));
+        ctx.set_connected_pool(pool);
         println_succ!("Pool \"{}\" has been connected", name);
 
-        let pool = ensure_connected_pool(ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
         set_transaction_author_agreement(ctx, &pool, true)?;
 
         trace!("execute <<");
@@ -96,8 +95,8 @@ pub mod connect_command {
     pub fn cleanup(ctx: &CommandContext) {
         trace!("cleanup >> ctx {:?}", ctx);
 
-        if let Some((pool, name)) = get_connected_pool_with_name(ctx) {
-            close_pool(ctx, &pool, &name).ok();
+        if let Some(pool) = ctx.get_connected_pool() {
+            close_pool(ctx, &pool).ok();
         }
 
         trace!("cleanup <<");
@@ -120,15 +119,16 @@ pub fn accept_transaction_author_agreement(ctx: &CommandContext, text: &str, ver
 
     let time_of_acceptance = Utc::now().timestamp() as u64;
 
-    set_transaction_author_info(
-        ctx,
-        Some((text.to_string(), version.to_string(), time_of_acceptance)),
-    );
+    ctx.set_transaction_author_info(Some((
+        text.to_string(),
+        version.to_string(),
+        time_of_acceptance,
+    )));
 }
 
 pub fn set_transaction_author_agreement(
     ctx: &CommandContext,
-    pool: &LocalPool,
+    pool: &Pool,
     ask_for_showing: bool,
 ) -> Result<Option<()>, ()> {
     if let Some((text, version, digest)) = get_active_transaction_author_agreement(pool)? {
@@ -167,6 +167,7 @@ pub fn set_transaction_author_agreement(
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod connect {
         use super::*;
@@ -184,7 +185,7 @@ pub mod tests {
                 params.insert("name", POOL.to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_connected_pool_handle(&ctx).unwrap();
+            ctx.ensure_connected_pool().unwrap();
             disconnect_and_delete_pool(&ctx);
             tear_down();
         }
@@ -254,7 +255,7 @@ pub mod tests {
                 params.insert("timeout", "100".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_connected_pool_handle(&ctx).unwrap();
+            ctx.ensure_connected_pool().unwrap();
             disconnect_and_delete_pool(&ctx);
             tear_down();
         }
@@ -270,7 +271,7 @@ pub mod tests {
                 params.insert("extended-timeout", "100".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_connected_pool_handle(&ctx).unwrap();
+            ctx.ensure_connected_pool().unwrap();
             disconnect_and_delete_pool(&ctx);
             tear_down();
         }
@@ -286,7 +287,7 @@ pub mod tests {
                 params.insert("pre-ordered-nodes", "Node2,Node1".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_connected_pool_handle(&ctx).unwrap();
+            ctx.ensure_connected_pool().unwrap();
             disconnect_and_delete_pool(&ctx);
             tear_down();
         }

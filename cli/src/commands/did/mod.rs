@@ -31,7 +31,6 @@ pub mod tests {
     use super::*;
     use crate::{
         command_executor::{CommandContext, CommandParams},
-        commands::ensure_opened_wallet,
         tools::did::{Did, DidInfo},
     };
     use indy_utils::did::DidValue;
@@ -49,14 +48,9 @@ pub mod tests {
     pub const VERKEY_MY3: &'static str = "3SeuRm3uYuQDYmHeuMLu1xNHozNTtzS3kbZRFMMCWrX4";
 
     pub fn get_did_info(ctx: &CommandContext, did: &str) -> DidInfo {
-        let wallet = ensure_opened_wallet(ctx).unwrap();
+        let wallet = ctx.ensure_opened_wallet().unwrap();
         let did = DidValue(did.to_string());
         Did::get(&wallet, &did).unwrap()
-    }
-
-    pub fn get_dids(ctx: &CommandContext) -> Vec<DidInfo> {
-        let wallet = ensure_opened_wallet(ctx).unwrap();
-        Did::list(&wallet).unwrap()
     }
 
     pub fn new_did(ctx: &CommandContext, seed: &str) {

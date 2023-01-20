@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams, CommandResult},
-    commands::get_str_param,
+    params_parser::ParamParser,
 };
 
 pub mod prompt_command {
@@ -19,7 +19,7 @@ pub mod prompt_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> CommandResult {
         trace!("execute >> ctx: {:?}, params: {:?}", ctx, params);
 
-        let prompt = get_str_param("prompt", params).map_err(error_err!())?;
+        let prompt = ParamParser::get_str_param("prompt", params)?;
 
         ctx.set_main_prompt(prompt.to_owned());
         println_succ!("Command prompt has been set to \"{}\"", prompt);

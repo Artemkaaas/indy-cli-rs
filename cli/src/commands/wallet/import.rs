@@ -7,9 +7,11 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
-    tools::wallet::{Credentials, Wallet},
-    utils::wallet_directory::{WalletConfig, WalletDirectory},
+    params_parser::ParamParser,
+    tools::wallet::{
+        directory::{WalletConfig, WalletDirectory},
+        Credentials, Wallet,
+    },
 };
 
 pub mod import_command {
@@ -38,21 +40,18 @@ pub mod import_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let id = get_str_param("name", params).map_err(error_err!())?;
-        let key = get_str_param("key", params).map_err(error_err!())?;
+        let id = ParamParser::get_str_param("name", params)?;
+        let key = ParamParser::get_str_param("key", params)?;
         let key_derivation_method =
-            get_opt_str_param("key_derivation_method", params).map_err(error_err!())?;
-        let export_path = get_str_param("export_path", params).map_err(error_err!())?;
-        let export_key = get_str_param("export_key", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("key_derivation_method", params)?;
+        let export_path = ParamParser::get_str_param("export_path", params)?;
+        let export_key = ParamParser::get_str_param("export_key", params)?;
         let export_key_derivation_method =
-            get_opt_str_param("export_key_derivation_method", params).map_err(error_err!())?;
-        let storage_type = get_opt_str_param("storage_type", params)
-            .map_err(error_err!())?
-            .unwrap_or("default");
-        let storage_config =
-            get_opt_object_param("storage_config", params).map_err(error_err!())?;
-        let storage_credentials =
-            get_opt_object_param("storage_credentials", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("export_key_derivation_method", params)?;
+        let storage_type =
+            ParamParser::get_opt_str_param("storage_type", params)?.unwrap_or("default");
+        let storage_config = ParamParser::get_opt_object_param("storage_config", params)?;
+        let storage_credentials = ParamParser::get_opt_object_param("storage_credentials", params)?;
 
         let config = WalletConfig {
             id: id.to_string(),
@@ -101,10 +100,12 @@ pub mod import_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod import {
         use super::*;
         use crate::{
+            commands::setup_with_wallet,
             did::tests::{new_did, use_did, DID_MY1, SEED_MY1},
             wallet::{
                 close_command, create_command, delete_command, export_command, open_command,
@@ -118,9 +119,8 @@ pub mod tests {
 
         #[test]
         pub fn import_works() {
-            let ctx = setup();
+            let ctx = setup_with_wallet();
 
-            create_and_open_wallet(&ctx);
             new_did(&ctx, SEED_MY1);
             use_did(&ctx, DID_MY1);
 

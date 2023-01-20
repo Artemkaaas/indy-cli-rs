@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
 };
 
@@ -39,13 +39,13 @@ pub mod schema_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let name = get_str_param("name", params).map_err(error_err!())?;
-        let version = get_str_param("version", params).map_err(error_err!())?;
-        let attr_names = get_str_array_param("attr_names", params).map_err(error_err!())?;
+        let name = ParamParser::get_str_param("name", params)?;
+        let version = ParamParser::get_str_param("version", params)?;
+        let attr_names = ParamParser::get_str_array_param("attr_names", params)?;
 
         let id = SchemaId::new(&submitter_did, name, version);
         let schema = Schema::SchemaV1(SchemaV1 {
@@ -61,14 +61,8 @@ pub mod schema_command {
 
         set_author_agreement(ctx, &mut request)?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         handle_transaction_response(response).map(|result| {
             print_transaction_response(
@@ -104,20 +98,20 @@ pub mod get_schema_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let submitter_did = get_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let submitter_did = ctx.get_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let target_did = get_did_param("did", params).map_err(error_err!())?;
-        let name = get_str_param("name", params).map_err(error_err!())?;
-        let version = get_str_param("version", params).map_err(error_err!())?;
+        let target_did = ParamParser::get_did_param("did", params)?;
+        let name = ParamParser::get_str_param("name", params)?;
+        let version = ParamParser::get_str_param("version", params)?;
 
         let id = SchemaId::new(&target_did, name, version);
 
         let request =
-            Ledger::build_get_schema_request(pool.as_deref(), submitter_did.as_ref(), &id)
+            Ledger::build_get_schema_request(pool.as_deref(), submitter_did.as_deref(), &id)
                 .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response) = send_read_request!(&ctx, params, &request, submitter_did.as_ref());
+        let (_, response) = send_read_request!(&ctx, params, &request);
 
         if let Some(result) = response.result.as_ref() {
             if !result["seqNo"].is_i64() {
@@ -151,13 +145,15 @@ pub mod tests {
     use crate::{
         commands::{
             did::tests::{new_did, use_did, DID_MY3, DID_TRUSTEE, SEED_MY3},
+            setup_with_wallet_and_pool, submit_retry, tear_down_with_wallet_and_pool,
             wallet::tests::{close_wallet, open_wallet},
         },
         ledger::{
             endorse_transaction_command,
-            tests::{create_new_did, ensure_schema_added, send_nym, use_new_identity, use_trustee},
+            tests::{create_new_did, send_nym, use_new_endorser, use_trustee},
         },
     };
+    use indy_utils::did::DidValue;
 
     mod schema {
         use super::*;
@@ -165,7 +161,7 @@ pub mod tests {
         #[test]
         pub fn schema_works() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = schema_command::new();
                 let mut params = CommandParams::new();
@@ -224,7 +220,7 @@ pub mod tests {
         #[test]
         pub fn schema_works_without_sending() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = schema_command::new();
                 let mut params = CommandParams::new();
@@ -235,14 +231,14 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             assert!(ensure_schema_added(&ctx, &did).is_err());
-            assert!(get_context_transaction(&ctx).is_some());
+            assert!(ctx.get_context_transaction().is_some());
             tear_down_with_wallet_and_pool(&ctx);
         }
 
         #[test]
         pub fn schema_works_without_signing() {
             let ctx = setup_with_wallet_and_pool();
-            use_new_identity(&ctx);
+            use_new_endorser(&ctx);
             {
                 let cmd = schema_command::new();
                 let mut params = CommandParams::new();
@@ -253,7 +249,7 @@ pub mod tests {
                 params.insert("send", "false".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            let transaction = get_context_transaction(&ctx).unwrap();
+            let transaction = ctx.get_context_transaction().unwrap();
             let transaction: JsonValue = serde_json::from_str(&transaction).unwrap();
             assert!(transaction["signature"].is_null());
             tear_down_with_wallet_and_pool(&ctx);
@@ -262,7 +258,7 @@ pub mod tests {
         #[test]
         pub fn schema_works_for_endorser() {
             let ctx = setup_with_wallet_and_pool();
-            let (endorser_did, _) = use_new_identity(&ctx);
+            let (endorser_did, _) = use_new_endorser(&ctx);
 
             // Publish new NYM without any role
             let (did, verkey) = create_new_did(&ctx);
@@ -295,7 +291,7 @@ pub mod tests {
         #[test]
         pub fn get_schema_works() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = schema_command::new();
                 let mut params = CommandParams::new();
@@ -350,7 +346,7 @@ pub mod tests {
         #[test]
         pub fn schema_works_for_no_active_did() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = schema_command::new();
                 let mut params = CommandParams::new();
@@ -375,5 +371,15 @@ pub mod tests {
             }
             tear_down_with_wallet_and_pool(&ctx);
         }
+    }
+
+    pub fn ensure_schema_added(ctx: &CommandContext, did: &str) -> Result<(), ()> {
+        let pool = ctx.get_connected_pool().unwrap();
+        let id = SchemaId::new(&DidValue(did.to_string()), "gvt", "1.0");
+        let request = Ledger::build_get_schema_request(Some(&pool), None, &id).unwrap();
+        submit_retry(ctx, &request, |response| {
+            let schema: JsonValue = serde_json::from_str(&response).unwrap();
+            schema["result"]["seqNo"].as_i64().ok_or(())
+        })
     }
 }

@@ -5,8 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
-    tools::wallet::Wallet,
+    params_parser::ParamParser,
 };
 
 pub mod export_command {
@@ -28,13 +27,12 @@ pub mod export_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let wallet = ensure_opened_wallet(&ctx)?;
-        let wallet_name = ensure_opened_wallet_name(&ctx)?;
+        let wallet = ctx.ensure_opened_wallet()?;
 
-        let export_path = get_str_param("export_path", params).map_err(error_err!())?;
-        let export_key = get_str_param("export_key", params).map_err(error_err!())?;
+        let export_path = ParamParser::get_str_param("export_path", params)?;
+        let export_key = ParamParser::get_str_param("export_key", params)?;
         let export_key_derivation_method =
-            get_opt_str_param("export_key_derivation_method", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("export_key_derivation_method", params)?;
 
         let export_config = ExportConfig {
             path: export_path.to_string(),
@@ -44,16 +42,17 @@ pub mod export_command {
 
         trace!(
             "Wallet::export_wallet try: wallet_name {}, export_path {}",
-            wallet_name,
+            wallet.name,
             export_path
         );
 
-        Wallet::export(&wallet, &export_config)
-            .map_err(|err| println_err!("{}", err.message(Some(&wallet_name))))?;
+        wallet
+            .export(&export_config)
+            .map_err(|err| println_err!("{}", err.message(Some(&wallet.name))))?;
 
         println_succ!(
             "Wallet \"{}\" has been exported to the file \"{}\"",
-            wallet_name,
+            wallet.name,
             export_path
         );
 
@@ -65,6 +64,7 @@ pub mod export_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup_with_wallet, tear_down_with_wallet};
 
     mod export {
         use super::*;

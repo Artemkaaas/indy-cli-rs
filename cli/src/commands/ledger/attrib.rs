@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
 };
 
@@ -38,14 +38,14 @@ pub mod attrib_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let pool = get_connected_pool(&ctx);
-        let submitter_did = ensure_active_did(&ctx)?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let pool = ctx.get_connected_pool();
+        let submitter_did = ctx.ensure_active_did()?;
 
-        let target_did = get_did_param("did", params).map_err(error_err!())?;
-        let hash = get_opt_str_param("hash", params).map_err(error_err!())?;
-        let raw = get_opt_object_param("raw", params).map_err(error_err!())?;
-        let enc = get_opt_str_param("enc", params).map_err(error_err!())?;
+        let target_did = ParamParser::get_did_param("did", params)?;
+        let hash = ParamParser::get_opt_str_param("hash", params)?;
+        let raw = ParamParser::get_opt_object_param("raw", params)?;
+        let enc = ParamParser::get_opt_str_param("enc", params)?;
 
         let mut request = Ledger::build_attrib_request(
             pool.as_deref(),
@@ -59,14 +59,8 @@ pub mod attrib_command {
 
         set_author_agreement(ctx, &mut request)?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         let attribute = if raw.is_some() {
             ("raw", "Raw value")
@@ -109,17 +103,17 @@ pub mod get_attrib_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let submitter_did = get_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let submitter_did = ctx.get_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let target_did = get_did_param("did", params).map_err(error_err!())?;
-        let raw = get_opt_str_param("raw", params).map_err(error_err!())?;
-        let hash = get_opt_str_param("hash", params).map_err(error_err!())?;
-        let enc = get_opt_str_param("enc", params).map_err(error_err!())?;
+        let target_did = ParamParser::get_did_param("did", params)?;
+        let raw = ParamParser::get_opt_str_param("raw", params)?;
+        let hash = ParamParser::get_opt_str_param("hash", params)?;
+        let enc = ParamParser::get_opt_str_param("enc", params)?;
 
         let request = Ledger::build_get_attrib_request(
             pool.as_deref(),
-            submitter_did.as_ref(),
+            submitter_did.as_deref(),
             &target_did,
             raw,
             hash,
@@ -127,7 +121,7 @@ pub mod get_attrib_command {
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, mut response) = send_read_request!(&ctx, params, &request, submitter_did.as_ref());
+        let (_, mut response) = send_read_request!(&ctx, params, &request);
 
         if let Some(result) = response.result.as_mut() {
             let data = result["data"]
@@ -165,16 +159,20 @@ pub mod tests {
     use crate::{
         commands::{
             did::tests::{new_did, use_did, DID_MY3, DID_TRUSTEE, SEED_MY3},
+            setup_with_wallet_and_pool, submit_retry, tear_down_with_wallet_and_pool,
             wallet::tests::{close_wallet, open_wallet},
         },
         ledger::{
             endorse_transaction_command,
-            tests::{
-                create_new_did, ensure_attrib_added, send_nym, use_new_identity, use_trustee,
-                ATTRIB_ENC_DATA, ATTRIB_HASH_DATA, ATTRIB_RAW_DATA,
-            },
+            tests::{create_new_did, send_nym, use_new_endorser, use_trustee, ReplyResult},
         },
     };
+    use indy_utils::did::DidValue;
+
+    const ATTRIB_RAW_DATA: &str = r#"{"endpoint":{"ha":"127.0.0.1:5555"}}"#;
+    const ATTRIB_HASH_DATA: &str =
+        r#"83d907821df1c87db829e96569a11f6fc2e7880acba5e43d07ab786959e13bd3"#;
+    const ATTRIB_ENC_DATA: &str = r#"aa3f41f619aa7e5e6b6d0d"#;
 
     mod attrib {
         use super::*;
@@ -182,7 +180,7 @@ pub mod tests {
         #[test]
         pub fn attrib_works_for_raw_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -197,7 +195,7 @@ pub mod tests {
         #[test]
         pub fn attrib_works_for_hash_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -212,7 +210,7 @@ pub mod tests {
         #[test]
         pub fn attrib_works_for_enc_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -283,7 +281,7 @@ pub mod tests {
         #[test]
         pub fn attrib_works_for_raw_value_without_sending() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -293,14 +291,14 @@ pub mod tests {
                 cmd.execute(&ctx, &params).unwrap();
             }
             assert!(ensure_attrib_added(&ctx, &did, Some(ATTRIB_RAW_DATA), None, None).is_err());
-            assert!(get_context_transaction(&ctx).is_some());
+            assert!(ctx.get_context_transaction().is_some());
             tear_down_with_wallet_and_pool(&ctx);
         }
 
         #[test]
         pub fn attrib_works_without_signing() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -310,7 +308,7 @@ pub mod tests {
                 params.insert("send", "false".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            let transaction = get_context_transaction(&ctx).unwrap();
+            let transaction = ctx.get_context_transaction().unwrap();
             let transaction: JsonValue = serde_json::from_str(&transaction).unwrap();
             assert!(transaction["signature"].is_null());
             tear_down_with_wallet_and_pool(&ctx);
@@ -319,7 +317,7 @@ pub mod tests {
         #[test]
         pub fn attrib_works_for_endorser() {
             let ctx = setup_with_wallet_and_pool();
-            let (endorser_did, _) = use_new_identity(&ctx);
+            let (endorser_did, _) = use_new_endorser(&ctx);
 
             // Publish new NYM without any role
             let (did, verkey) = create_new_did(&ctx);
@@ -351,7 +349,7 @@ pub mod tests {
         #[test]
         pub fn get_attrib_works_for_raw_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -373,7 +371,7 @@ pub mod tests {
         #[test]
         pub fn get_attrib_works_for_hash_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -395,7 +393,7 @@ pub mod tests {
         #[test]
         pub fn get_attrib_works_for_enc_value() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -417,7 +415,7 @@ pub mod tests {
         #[test]
         pub fn get_attrib_works_for_no_active_did() {
             let ctx = setup_with_wallet_and_pool();
-            let (did, _) = use_new_identity(&ctx);
+            let (did, _) = use_new_endorser(&ctx);
             {
                 let cmd = attrib_command::new();
                 let mut params = CommandParams::new();
@@ -440,5 +438,42 @@ pub mod tests {
             }
             tear_down_with_wallet_and_pool(&ctx);
         }
+    }
+
+    pub fn ensure_attrib_added(
+        ctx: &CommandContext,
+        did: &str,
+        raw: Option<&str>,
+        hash: Option<&str>,
+        enc: Option<&str>,
+    ) -> Result<(), ()> {
+        let pool = ctx.get_connected_pool().unwrap();
+        let attr = if raw.is_some() {
+            Some("endpoint")
+        } else {
+            None
+        };
+        let did = DidValue(did.to_string());
+        let request =
+            Ledger::build_get_attrib_request(Some(&pool), None, &did, attr, hash, enc).unwrap();
+        submit_retry(ctx, &request, |response| {
+            serde_json::from_str::<Response<ReplyResult<String>>>(&response)
+                .map_err(|_| ())
+                .and_then(|response| {
+                    let expected_value = if raw.is_some() {
+                        raw.unwrap()
+                    } else if hash.is_some() {
+                        hash.unwrap()
+                    } else {
+                        enc.unwrap()
+                    };
+                    if response.result.is_some() && expected_value == response.result.unwrap().data
+                    {
+                        Ok(())
+                    } else {
+                        Err(())
+                    }
+                })
+        })
     }
 }

@@ -7,8 +7,8 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
-    utils::wallet_directory::WalletDirectory,
+    params_parser::ParamParser,
+    tools::wallet::directory::WalletDirectory,
 };
 
 pub mod detach_command {
@@ -28,15 +28,15 @@ pub mod detach_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx: {:?} params {:?}", ctx, secret!(params));
 
-        let id = get_str_param("name", params).map_err(error_err!())?;
+        let id = ParamParser::get_str_param("name", params)?;
 
         if !WalletDirectory::is_wallet_config_exist(id) {
             println_err!("Wallet \"{}\" isn't attached to CLI", id);
             return Err(());
         }
 
-        if let Some((_, name)) = get_opened_wallet(ctx) {
-            if id == name {
+        if let Some(wallet) = ctx.get_opened_wallet() {
+            if wallet.name == id {
                 println_err!("Wallet \"{}\" is opened", id);
                 return Err(());
             }
@@ -55,6 +55,7 @@ pub mod detach_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod detach {
         use super::*;

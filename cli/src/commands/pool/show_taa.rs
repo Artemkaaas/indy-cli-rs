@@ -3,10 +3,7 @@
     https://www.dsr-corporation.com
     SPDX-License-Identifier: Apache-2.0
 */
-use crate::{
-    command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
-};
+use crate::command_executor::{Command, CommandContext, CommandMetadata, CommandParams};
 
 pub mod show_taa_command {
     use super::*;
@@ -21,7 +18,7 @@ pub mod show_taa_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool_handle(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
 
         match set_transaction_author_agreement(ctx, &pool, false) {
             Err(_) => (),

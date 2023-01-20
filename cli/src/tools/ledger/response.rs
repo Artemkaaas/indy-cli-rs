@@ -1,3 +1,8 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
 use crate::utils::time::timestamp_to_datetime;
 
 use serde_json::Value as JsonValue;

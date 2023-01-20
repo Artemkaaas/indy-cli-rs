@@ -5,7 +5,6 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
     tools::did::Did,
     utils::table::print_list_table,
 };
@@ -20,7 +19,7 @@ pub mod list_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let store = ctx.ensure_opened_wallet()?;
 
         let mut dids = Did::list(&store).map_err(|err| println_err!("{}", err.message(None)))?;
 
@@ -41,7 +40,7 @@ pub mod list_command {
             ],
             "There are no dids",
         );
-        if let Some(cur_did) = get_active_did(ctx)? {
+        if let Some(cur_did) = ctx.get_active_did()? {
             println_succ!("Current did \"{}\"", cur_did);
         }
 
@@ -51,8 +50,8 @@ pub mod list_command {
 }
 
 pub fn did_list(ctx: &CommandContext) -> Vec<String> {
-    get_opened_wallet(ctx)
-        .and_then(|(store, _)| Did::list(&store).ok())
+    ctx.get_opened_wallet()
+        .and_then(|wallet| Did::list(&wallet).ok())
         .unwrap_or(vec![])
         .into_iter()
         .map(|did| did.did)
@@ -66,6 +65,7 @@ pub mod tests {
     mod did_list {
         use super::*;
         use crate::{
+            commands::{setup_with_wallet, tear_down, tear_down_with_wallet},
             did::tests::{new_did, SEED_TRUSTEE},
             wallet::tests::close_and_delete_wallet,
         };

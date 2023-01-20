@@ -7,9 +7,8 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
-    tools::wallet::{Credentials, Wallet},
-    utils::wallet_directory::WalletDirectory,
+    params_parser::ParamParser,
+    tools::wallet::{directory::WalletDirectory, Credentials, Wallet},
     wallet::close_wallet,
 };
 
@@ -32,12 +31,11 @@ pub mod delete_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx: {:?} params {:?}", ctx, secret!(params));
 
-        let id = get_str_param("name", params).map_err(error_err!())?;
-        let key = get_str_param("key", params).map_err(error_err!())?;
+        let id = ParamParser::get_str_param("name", params)?;
+        let key = ParamParser::get_str_param("key", params)?;
         let key_derivation_method =
-            get_opt_str_param("key_derivation_method", params).map_err(error_err!())?;
-        let storage_credentials =
-            get_opt_object_param("storage_credentials", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("key_derivation_method", params)?;
+        let storage_credentials = ParamParser::get_opt_object_param("storage_credentials", params)?;
 
         let config = WalletDirectory::read_wallet_config(id)
             .map_err(|_| println_err!("Wallet \"{}\" isn't attached to CLI", id))?;
@@ -45,13 +43,12 @@ pub mod delete_command {
         let credentials = Credentials {
             key: key.to_string(),
             key_derivation_method: key_derivation_method.map(String::from),
-            rekey: None,
-            rekey_derivation_method: None,
             storage_credentials,
+            ..Credentials::default()
         };
 
-        if let Some((store, id)) = get_opened_wallet(ctx) {
-            close_wallet(ctx, &store, &id)?;
+        if let Some(wallet) = ctx.take_opened_wallet()? {
+            close_wallet(ctx, wallet)?;
         }
 
         Wallet::delete(&config, &credentials)
@@ -70,6 +67,7 @@ pub mod delete_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod delete {
         use super::*;

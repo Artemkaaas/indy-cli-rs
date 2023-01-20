@@ -3,5 +3,4 @@
     https://www.dsr-corporation.com
     SPDX-License-Identifier: Apache-2.0
 */
-pub const KEY_TYPE: &'static str = "ed25519";
-pub const CATEGORY_DID: &'static str = "did";
+pub const DEFAULT_POOL_PROTOCOL_VERSION: usize = 2;

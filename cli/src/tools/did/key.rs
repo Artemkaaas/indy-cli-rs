@@ -1,19 +1,22 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
 use crate::{
     error::{CliError, CliResult},
     tools::did::seed::Seed,
 };
 
-use aries_askar::{
-    any::AnyStore,
-    kms::{KeyAlg, LocalKey},
-};
+use crate::tools::wallet::Wallet;
+use aries_askar::kms::{KeyAlg, LocalKey};
 use indy_utils::base58;
 
 pub struct Key(LocalKey);
 
 impl Key {
     pub async fn create(
-        store: &AnyStore,
+        store: &Wallet,
         seed: Option<&str>,
         metadata: Option<&str>,
     ) -> CliResult<Key> {
@@ -29,10 +32,7 @@ impl Key {
 
         let verkey = key.verkey()?;
 
-        let mut session = store.session(None).await?;
-        session
-            .insert_key(&verkey, key.value(), metadata, None, None)
-            .await?;
+        store.insert_key(&verkey, &key, metadata).await?;
 
         Ok(key)
     }
@@ -46,24 +46,11 @@ impl Key {
         Ok(base58::encode(public_key))
     }
 
-    pub async fn sign(store: &AnyStore, id: &str, bytes: &[u8]) -> CliResult<Vec<u8>> {
-        Self::load(store, id)
+    pub async fn sign(store: &Wallet, id: &str, bytes: &[u8]) -> CliResult<Vec<u8>> {
+        store
+            .fetch_key(id)
             .await?
-            .value()
             .sign_message(bytes, None)
             .map_err(CliError::from)
-    }
-
-    pub async fn load(store: &AnyStore, id: &str) -> CliResult<Key> {
-        let mut session = store.session(None).await?;
-
-        let local_key = session
-            .fetch_key(id, false)
-            .await?
-            .ok_or_else(|| CliError::NotFound(format!("Key {} does not exits in the wallet!", id)))?
-            .load_local_key()
-            .map_err(CliError::from)?;
-
-        Ok(Key(local_key))
     }
 }

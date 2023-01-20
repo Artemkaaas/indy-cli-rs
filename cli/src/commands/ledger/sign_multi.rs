@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::Ledger,
 };
 
@@ -13,6 +13,7 @@ use indy_vdr::pool::PreparedRequest;
 
 pub mod sign_multi_command {
     use super::*;
+    use crate::error::CliError;
     use indy_vdr::common::error::VdrErrorKind;
 
     command!(CommandMetadata::build(
@@ -29,18 +30,18 @@ pub mod sign_multi_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
 
-        let param_txn = get_opt_str_param("txn", params).map_err(error_err!())?;
+        let param_txn = ParamParser::get_opt_str_param("txn", params)?;
 
         let mut txn = get_transaction_to_use!(ctx, param_txn);
 
-        match Ledger::multi_sign_request(&store, &submitter_did, &mut txn) {
+        match Ledger::multi_sign_request(&wallet, &submitter_did, &mut txn) {
             Ok(_) => {
                 println_succ!("Transaction has been signed:");
                 println_succ!("{:?}", txn.req_json.to_string());
-                set_context_transaction(ctx, Some(txn.req_json.to_string()));
+                ctx.set_context_transaction(Some(txn.req_json.to_string()));
             }
             Err(err) => match err {
                 CliError::VdrError(ref vdr_err) => match vdr_err.kind() {
@@ -65,7 +66,10 @@ pub mod sign_multi_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::tests::{use_trustee, TRANSACTION};
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::tests::{use_trustee, TRANSACTION},
+    };
 
     mod sign_multi {
         use super::*;

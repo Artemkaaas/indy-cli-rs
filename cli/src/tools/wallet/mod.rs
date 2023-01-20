@@ -1,14 +1,17 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
+pub mod backup;
 mod credentials;
+pub mod directory;
 mod uri;
 
 use crate::{
     error::{CliError, CliResult},
     tools::did::constants::CATEGORY_DID,
-    utils::{
-        futures::block_on,
-        wallet_backup::WalletBackup,
-        wallet_directory::{WalletConfig, WalletDirectory},
-    },
+    utils::futures::block_on,
 };
 
 use self::{
@@ -16,10 +19,20 @@ use self::{
     uri::{StorageType, WalletUri},
 };
 
-use aries_askar::{any::AnyStore, Error as AskarError, ErrorKind as AskarErrorKind, ManageBackend};
+use crate::tools::did::key::Key;
+use aries_askar::{
+    any::AnyStore, kms::LocalKey, Entry, EntryTag, Error as AskarError,
+    ErrorKind as AskarErrorKind, ManageBackend,
+};
+use backup::WalletBackup;
+use directory::{WalletConfig, WalletDirectory};
 use serde_json::Value as JsonValue;
 
-pub struct Wallet {}
+#[derive(Debug)]
+pub struct Wallet {
+    pub name: String,
+    pub store: AnyStore,
+}
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Credentials {
@@ -45,7 +58,7 @@ pub struct ImportConfig {
 }
 
 impl Wallet {
-    pub fn create(config: &WalletConfig, credentials: &Credentials) -> CliResult<AnyStore> {
+    pub fn create(config: &WalletConfig, credentials: &Credentials) -> CliResult<()> {
         if WalletDirectory::is_wallet_config_exist(&config.id) {
             return Err(CliError::Duplicate(format!(
                 "Wallet \"{}\" already exists",
@@ -75,11 +88,11 @@ impl Wallet {
             // So we have to close all store handles
             store.close().await?;
 
-            Ok(store)
+            Ok(())
         })
     }
 
-    pub fn open(config: &WalletConfig, credentials: &Credentials) -> CliResult<AnyStore> {
+    pub fn open(config: &WalletConfig, credentials: &Credentials) -> CliResult<Wallet> {
         let wallet_uri = WalletUri::build(config, credentials, None)?;
         let credentials = WalletCredentials::build(credentials)?;
 
@@ -101,12 +114,15 @@ impl Wallet {
                 store.rekey(rekey_method, rekey).await?;
             }
 
-            Ok(store)
+            Ok(Wallet {
+                store,
+                name: config.id.to_string(),
+            })
         })
     }
 
-    pub fn close(store: &AnyStore) -> CliResult<()> {
-        block_on(async move { store.close().await.map_err(CliError::from) })
+    pub fn close(self) -> CliResult<()> {
+        block_on(async move { self.store.close().await.map_err(CliError::from) })
     }
 
     pub fn delete(config: &WalletConfig, credentials: &Credentials) -> CliResult<bool> {
@@ -133,7 +149,7 @@ impl Wallet {
         WalletDirectory::list_wallets()
     }
 
-    pub fn export(store: &AnyStore, export_config: &ExportConfig) -> CliResult<()> {
+    pub fn export(&self, export_config: &ExportConfig) -> CliResult<()> {
         let backup_config = WalletConfig {
             id: WalletBackup::get_id(&export_config.path),
             storage_type: StorageType::Sqlite.to_str().to_string(),
@@ -166,7 +182,7 @@ impl Wallet {
                 .await
                 .map_err(CliError::from)?;
 
-            Self::copy_records(&store, &backup_store).await?;
+            Self::copy_records(&self.store, &backup_store).await?;
 
             backup_store.close().await?;
 
@@ -292,5 +308,69 @@ impl Wallet {
         from_session.commit().await?;
 
         Ok(())
+    }
+
+    pub async fn store_record(
+        &self,
+        category: &str,
+        id: &str,
+        value: &[u8],
+        tags: Option<&[EntryTag]>,
+        new: bool,
+    ) -> CliResult<()> {
+        let mut session = self.store.session(None).await?;
+        if new {
+            session.insert(category, id, value, tags, None).await?
+        } else {
+            session.replace(category, id, value, tags, None).await?
+        }
+        session.commit().await?;
+        Ok(())
+    }
+
+    pub async fn fetch_all_record(&self, category: &str) -> CliResult<Vec<Entry>> {
+        let mut session = self.store.session(None).await?;
+        let records = session.fetch_all(category, None, None, false).await?;
+        session.commit().await?;
+        Ok(records)
+    }
+
+    pub async fn fetch_record(
+        &self,
+        category: &str,
+        id: &str,
+        for_update: bool,
+    ) -> CliResult<Option<Entry>> {
+        let mut session = self.store.session(None).await?;
+        let record = session.fetch(category, &id, for_update).await?;
+        session.commit().await?;
+        Ok(record)
+    }
+
+    pub async fn remove_record(&self, category: &str, id: &str) -> CliResult<()> {
+        let mut session = self.store.session(None).await?;
+        session.remove(category, id).await.map_err(CliError::from)?;
+        session.commit().await?;
+        Ok(())
+    }
+
+    pub async fn insert_key(&self, id: &str, key: &Key, metadata: Option<&str>) -> CliResult<()> {
+        let mut session = self.store.session(None).await?;
+        session
+            .insert_key(id, key.value(), metadata, None, None)
+            .await?;
+        session.commit().await?;
+        Ok(())
+    }
+
+    pub async fn fetch_key(&self, id: &str) -> CliResult<LocalKey> {
+        let mut session = self.store.session(None).await?;
+        let key = session
+            .fetch_key(id, false)
+            .await?
+            .ok_or_else(|| CliError::NotFound(format!("Key {} does not exits in the wallet!", id)))?
+            .load_local_key()?;
+        session.commit().await?;
+        Ok(key)
     }
 }

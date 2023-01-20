@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
 };
 
@@ -42,24 +42,20 @@ pub mod pool_upgrade_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let name = get_str_param("name", params).map_err(error_err!())?;
-        let version = get_str_param("version", params).map_err(error_err!())?;
-        let action = get_str_param("action", params).map_err(error_err!())?;
-        let sha256 = get_str_param("sha256", params).map_err(error_err!())?;
-        let timeout = get_opt_number_param::<u32>("timeout", params).map_err(error_err!())?;
-        let schedule = get_opt_str_param("schedule", params).map_err(error_err!())?;
-        let justification = get_opt_str_param("justification", params).map_err(error_err!())?;
-        let reinstall = get_opt_bool_param("reinstall", params)
-            .map_err(error_err!())?
-            .unwrap_or(false);
-        let force = get_opt_bool_param("force", params)
-            .map_err(error_err!())?
-            .unwrap_or(false);
-        let package = get_opt_str_param("package", params).map_err(error_err!())?;
+        let name = ParamParser::get_str_param("name", params)?;
+        let version = ParamParser::get_str_param("version", params)?;
+        let action = ParamParser::get_str_param("action", params)?;
+        let sha256 = ParamParser::get_str_param("sha256", params)?;
+        let timeout = ParamParser::get_opt_number_param::<u32>("timeout", params)?;
+        let schedule = ParamParser::get_opt_str_param("schedule", params)?;
+        let justification = ParamParser::get_opt_str_param("justification", params)?;
+        let reinstall = ParamParser::get_opt_bool_param("reinstall", params)?.unwrap_or(false);
+        let force = ParamParser::get_opt_bool_param("force", params)?.unwrap_or(false);
+        let package = ParamParser::get_opt_str_param("package", params)?;
 
         let mut request = Ledger::indy_build_pool_upgrade_request(
             pool.as_deref(),
@@ -77,14 +73,8 @@ pub mod pool_upgrade_command {
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         let mut schedule = None;
         let mut hash = None;
@@ -140,7 +130,10 @@ pub mod pool_upgrade_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::tests::use_trustee;
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::tests::use_trustee,
+    };
 
     mod pool_upgrade {
         use super::*;

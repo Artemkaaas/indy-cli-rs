@@ -1,10 +1,17 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
 use crate::{
     error::{CliError, CliResult},
     tools::wallet::Credentials,
-    utils::{environment::EnvironmentUtils, wallet_directory::WalletConfig},
+    utils::environment::EnvironmentUtils,
 };
 
+use crate::tools::wallet::directory::WalletConfig;
 use std::path::PathBuf;
+use urlencoding::encode;
 
 pub enum StorageType {
     Sqlite,
@@ -52,8 +59,12 @@ impl WalletUri {
         path.push(&config.id);
         path.set_extension("db");
 
-        let path = path.to_string_lossy().to_string();
-        let uri = format!("{}://{}", "sqlite", path);
+        let uri = format!(
+            "{}://{}",
+            StorageType::Sqlite.to_str(),
+            encode(&path.to_string_lossy())
+        );
+
         Ok(uri)
     }
 
@@ -90,7 +101,6 @@ impl WalletUri {
                 "No 'password' provided for postgres store".to_string(),
             ))?;
 
-        // FIXME: Find proper way to build and encode URI
         let mut params: Vec<String> = Vec::new();
         if let Some(connection_timeout) = storage_config["connect_timeout"].as_u64() {
             params.push(format!("connect_timeout={}", connection_timeout))
@@ -102,16 +112,21 @@ impl WalletUri {
             params.push(format!("min_idle_count={}", min_idle_count))
         }
         if let Some(admin_account) = storage_credentials["admin_account"].as_str() {
-            params.push(format!("admin_account={}", admin_account))
+            params.push(format!("admin_account={}", encode(admin_account)))
         }
         if let Some(admin_password) = storage_credentials["admin_password"].as_str() {
-            params.push(format!("admin_password={}", admin_password))
+            params.push(format!("admin_password={}", encode(admin_password)))
         }
         let query_params = params.join("&").to_string();
 
         let uri = format!(
-            "{}:{}@{}/{}?{}",
-            account, password, config_url, &config.id, query_params
+            "{}://{}:{}@{}/{}?{}",
+            StorageType::Postgres.to_str(),
+            encode(account),
+            encode(password),
+            config_url,
+            encode(&config.id),
+            &query_params
         );
 
         Ok(uri)
@@ -119,8 +134,8 @@ impl WalletUri {
 
     fn map_storage_type(storage_type: &str) -> CliResult<StorageType> {
         match storage_type {
-            "default" | "sqlite" => Ok(StorageType::Sqlite),
-            "postgres" => Ok(StorageType::Postgres),
+            "default" | "sqlite" | "sqlite_storage" => Ok(StorageType::Sqlite),
+            "postgres" | "postgres_storage" => Ok(StorageType::Postgres),
             value => Err(CliError::InvalidInput(format!(
                 "Unsupported storage type provided: {}",
                 value

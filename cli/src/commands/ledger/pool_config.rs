@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
 };
 
@@ -29,27 +29,19 @@ pub mod pool_config_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let writes = get_bool_param("writes", params).map_err(error_err!())?;
-        let force = get_opt_bool_param("force", params)
-            .map_err(error_err!())?
-            .unwrap_or(false);
+        let writes = ParamParser::get_bool_param("writes", params)?;
+        let force = ParamParser::get_opt_bool_param("force", params)?.unwrap_or(false);
 
         let mut request =
             Ledger::indy_build_pool_config_request(pool.as_deref(), &submitter_did, writes, force)
                 .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         handle_transaction_response(response).map(|result| {
             print_transaction_response(
@@ -69,7 +61,10 @@ pub mod pool_config_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::tests::use_trustee;
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::tests::use_trustee,
+    };
 
     mod pool_config {
         use super::*;

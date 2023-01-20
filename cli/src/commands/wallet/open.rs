@@ -7,9 +7,8 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
-    tools::wallet::{Credentials, Wallet},
-    utils::wallet_directory::WalletDirectory,
+    params_parser::ParamParser,
+    tools::wallet::{directory::WalletDirectory, Credentials, Wallet},
     wallet::close_wallet,
 };
 
@@ -37,15 +36,14 @@ pub mod open_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let id = get_str_param("name", params).map_err(error_err!())?;
-        let key = get_str_param("key", params).map_err(error_err!())?;
-        let rekey = get_opt_str_param("rekey", params).map_err(error_err!())?;
+        let id = ParamParser::get_str_param("name", params)?;
+        let key = ParamParser::get_str_param("key", params)?;
+        let rekey = ParamParser::get_opt_str_param("rekey", params)?;
         let key_derivation_method =
-            get_opt_str_param("key_derivation_method", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("key_derivation_method", params)?;
         let rekey_derivation_method =
-            get_opt_str_param("rekey_derivation_method", params).map_err(error_err!())?;
-        let storage_credentials =
-            get_opt_object_param("storage_credentials", params).map_err(error_err!())?;
+            ParamParser::get_opt_str_param("rekey_derivation_method", params)?;
+        let storage_credentials = ParamParser::get_opt_object_param("storage_credentials", params)?;
 
         let config = WalletDirectory::read_wallet_config(id)
             .map_err(|_| println_err!("Wallet \"{}\" isn't attached to CLI", id))?;
@@ -58,21 +56,22 @@ pub mod open_command {
             storage_credentials,
         };
 
-        reset_active_did(ctx);
+        ctx.reset_active_did();
 
-        if let Some((store, id)) = get_opened_wallet(ctx) {
-            if id == config.id {
-                println_err!("Wallet \"{}\" already opened.", id);
+        if let Some(wallet) = ctx.get_opened_wallet() {
+            if wallet.name == config.id {
+                println_err!("Wallet \"{}\" already opened.", wallet.name);
                 return Err(());
             }
-
-            close_wallet(ctx, &store, &id)?;
+        }
+        if let Some(wallet) = ctx.take_opened_wallet()? {
+            close_wallet(ctx, wallet)?;
         }
 
-        let store = Wallet::open(&config, &credentials)
+        let wallet = Wallet::open(&config, &credentials)
             .map_err(|err| println_err!("{}", err.message(Some(&id))))?;
 
-        set_opened_wallet(ctx, Some((store, id.to_owned())));
+        ctx.set_opened_wallet(wallet);
         println_succ!("Wallet \"{}\" has been opened", id);
 
         trace!("execute << {:?}", ());
@@ -82,8 +81,8 @@ pub mod open_command {
     pub fn cleanup(ctx: &CommandContext) {
         trace!("cleanup >> ctx {:?}", ctx);
 
-        if let Some((store, id)) = get_opened_wallet(ctx) {
-            close_wallet(ctx, &store, &id).ok();
+        if let Ok(Some(wallet)) = ctx.take_opened_wallet() {
+            close_wallet(ctx, wallet).ok();
         }
 
         trace!("cleanup <<");
@@ -93,6 +92,7 @@ pub mod open_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, setup_with_wallet, tear_down, tear_down_with_wallet};
 
     mod open {
         use super::*;
@@ -113,7 +113,7 @@ pub mod tests {
                 params.insert("key_derivation_method", "raw".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_opened_wallet(&ctx).unwrap();
+            ctx.ensure_opened_wallet().unwrap();
             close_and_delete_wallet(&ctx);
 
             tear_down();

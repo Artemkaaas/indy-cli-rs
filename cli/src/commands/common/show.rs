@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams, CommandResult},
-    commands::get_str_param,
+    params_parser::ParamParser,
     utils::file::read_file,
 };
 
@@ -22,7 +22,7 @@ pub mod show_command {
     fn execute(_ctx: &CommandContext, params: &CommandParams) -> CommandResult {
         trace!("execute >> params: {:?}", params);
 
-        let file = get_str_param("file", params).map_err(error_err!())?;
+        let file = ParamParser::get_str_param("file", params)?;
 
         let content = read_file(file).map_err(|err| println_err!("{}", err))?;
 

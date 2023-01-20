@@ -6,6 +6,7 @@
 use crate::command_executor::{CommandGroup, CommandGroupMetadata};
 
 pub mod connect;
+pub mod constants;
 pub mod create;
 pub mod delete;
 pub mod disconnect;

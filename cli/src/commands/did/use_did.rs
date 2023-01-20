@@ -7,7 +7,7 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
+    params_parser::ParamParser,
     tools::did::Did,
 };
 
@@ -26,14 +26,14 @@ pub mod use_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?}, params {:?}", ctx, params);
 
-        let did = get_did_param("did", params).map_err(error_err!())?;
+        let did = ParamParser::get_did_param("did", params)?;
 
-        let store = ensure_opened_wallet(ctx)?;
+        let store = ctx.ensure_opened_wallet()?;
 
         Did::get(&store, &did).map_err(|err| println_err!("{}", err.message(None)))?;
 
-        set_active_did(ctx, did.to_string());
         println_succ!("Did \"{}\" has been set as active", did);
+        ctx.set_active_did(did);
 
         trace!("execute <<");
         Ok(())
@@ -47,6 +47,7 @@ pub mod tests {
     mod did_use {
         use super::*;
         use crate::{
+            commands::{setup_with_wallet, tear_down, tear_down_with_wallet},
             did::{
                 new_command,
                 tests::{new_did, DID_TRUSTEE, SEED_TRUSTEE},
@@ -64,7 +65,7 @@ pub mod tests {
                 params.insert("did", DID_TRUSTEE.to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
-            assert_eq!(ensure_active_did(&ctx).unwrap().to_string(), DID_TRUSTEE);
+            assert_eq!(ctx.ensure_active_did().unwrap().to_string(), DID_TRUSTEE);
             tear_down_with_wallet(&ctx);
         }
 

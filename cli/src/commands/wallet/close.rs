@@ -5,7 +5,6 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
     tools::wallet::Wallet,
 };
 
@@ -17,8 +16,8 @@ pub mod close_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        if let Some((store, id)) = get_opened_wallet(ctx) {
-            close_wallet(ctx, &store, &id)?;
+        if let Some(wallet) = ctx.take_opened_wallet()? {
+            close_wallet(ctx, wallet)?;
         } else {
             println_err!("There is no opened wallet now");
             return Err(());
@@ -29,23 +28,29 @@ pub mod close_command {
     }
 }
 
-pub fn close_wallet(ctx: &CommandContext, store: &AnyStore, name: &str) -> Result<(), ()> {
-    Wallet::close(store)
+pub fn close_wallet(ctx: &CommandContext, wallet: Wallet) -> Result<(), ()> {
+    let name = wallet.name.clone();
+    wallet
+        .close()
         .map(|_| {
-            set_opened_wallet(ctx, None);
-            reset_active_did(ctx);
+            ctx.reset_opened_wallet();
+            ctx.reset_active_did();
             println_succ!("Wallet \"{}\" has been closed", name);
         })
-        .map_err(|err| println_err!("{}", err.message(Some(name))))
+        .map_err(|err| println_err!("{}", err.message(Some(&name))))
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup_with_wallet, tear_down};
 
     mod close {
         use super::*;
-        use crate::wallet::tests::{create_and_open_wallet, create_wallet, delete_wallet};
+        use crate::{
+            commands::setup,
+            wallet::tests::{create_and_open_wallet, create_wallet, delete_wallet},
+        };
 
         #[test]
         pub fn close_works() {
@@ -55,7 +60,7 @@ pub mod tests {
                 let params = CommandParams::new();
                 cmd.execute(&ctx, &params).unwrap();
             }
-            ensure_opened_wallet(&ctx).unwrap_err();
+            ctx.ensure_opened_wallet().unwrap_err();
             delete_wallet(&ctx);
             tear_down();
         }

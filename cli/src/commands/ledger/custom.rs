@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response, ResponseType},
 };
 
@@ -27,18 +27,15 @@ pub mod custom_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let pool_name = ensure_connected_pool_name(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
 
-        let txn = get_str_param("txn", params).map_err(error_err!())?;
-        let sign = get_opt_bool_param("sign", params)
-            .map_err(error_err!())?
-            .unwrap_or(false);
+        let txn = ParamParser::get_str_param("txn", params)?;
+        let sign = ParamParser::get_opt_bool_param("sign", params)?.unwrap_or(false);
 
         let mut transaction = txn.to_string();
 
         if txn == "context" {
-            let context_txn = get_context_transaction(ctx);
+            let context_txn = ctx.get_context_transaction();
 
             match context_txn {
                 Some(txn_) => {
@@ -57,7 +54,7 @@ pub mod custom_command {
                 None => {
                     println_err!("There is not a transaction stored into CLI context.");
                     println!("You either need to load transaction using `ledger load-transaction`, or \
-                        build a transaction (with passing a `send=false`) to store it into CLI context.");
+                        build a transaction (with passing a `send=false`) to wallet it into CLI context.");
                     return Err(());
                 }
             }
@@ -67,13 +64,13 @@ pub mod custom_command {
             .map_err(|_| println_err!("Invalid formatted transaction provided."))?;
 
         let response_json = if sign {
-            let store = ensure_opened_wallet(&ctx)?;
-            let submitter_did = ensure_active_did(&ctx)?;
-            Ledger::sign_and_submit_request(&pool, &store, &submitter_did, &mut transaction)
-                .map_err(|err| println_err!("{}", err.message(Some(&pool_name))))?
+            let wallet = ctx.ensure_opened_wallet()?;
+            let submitter_did = ctx.ensure_active_did()?;
+            Ledger::sign_and_submit_request(&pool, &wallet, &submitter_did, &mut transaction)
+                .map_err(|err| println_err!("{}", err.message(Some(&pool.name))))?
         } else {
             Ledger::submit_request(&pool, &transaction)
-                .map_err(|err| println_err!("{}", err.message(Some(&pool_name))))?
+                .map_err(|err| println_err!("{}", err.message(Some(&pool.name))))?
         };
 
         let response = serde_json::from_str::<Response<JsonValue>>(&response_json)
@@ -115,6 +112,7 @@ pub mod tests {
     use crate::{
         commands::{
             did::tests::{new_did, use_did, DID_MY3, DID_TRUSTEE, SEED_MY3},
+            setup_with_wallet_and_pool, tear_down_with_wallet_and_pool,
             wallet::tests::{close_and_delete_wallet, create_and_open_wallet},
         },
         ledger::tests::{use_trustee, TRANSACTION},
@@ -122,6 +120,7 @@ pub mod tests {
 
     mod custom {
         use super::*;
+        use crate::commands::{setup, tear_down};
 
         pub const TXN_FOR_SIGN: &str = r#"{
                                                     "reqId":1513241300414292814,

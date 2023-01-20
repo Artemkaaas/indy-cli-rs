@@ -5,19 +5,15 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
-    ledger::handle_transaction_response,
-    tools::{
-        did::Did,
-        ledger::{Ledger, Response},
-    },
+    params_parser::ParamParser,
+    tools::did::Did,
 };
 
 pub mod rotate_key_command {
     use super::*;
     use crate::{
-        ledger::{handle_transaction_response, set_author_agreement},
-        tools::ledger::Response,
+        error::CliError,
+        ledger::{get_current_verkey, send_nym},
     };
     use indy_vdr::common::error::VdrErrorKind;
 
@@ -36,19 +32,17 @@ pub mod rotate_key_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, secret!(params));
 
-        let seed = get_opt_str_param("seed", params).map_err(error_err!())?;
+        let seed = ParamParser::get_opt_str_param("seed", params)?;
 
-        let resume = get_opt_bool_param("resume", params)
-            .map_err(error_err!())?
-            .unwrap_or(false);
+        let resume = ParamParser::get_opt_bool_param("resume", params)?.unwrap_or(false);
 
-        let did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool_with_name(&ctx);
-        let store = ensure_opened_wallet(&ctx)?;
+        let did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
+        let store = ctx.ensure_opened_wallet()?;
 
         // get verkey from ledger
         let ledger_verkey = match pool {
-            Some((pool, pool_name)) => _get_current_verkey(&pool, &pool_name, &store, &did)?,
+            Some(pool) => get_current_verkey(&pool, &store, &did)?,
             None => None,
         };
 
@@ -109,35 +103,22 @@ pub mod rotate_key_command {
         };
 
         if update_ledger && is_did_on_the_ledger {
-            let pool = ensure_connected_pool(&ctx)?;
-            let pool_name = ensure_connected_pool_name(&ctx)?;
-            let mut request =
-                Ledger::build_nym_request(Some(&pool), &did, &did, Some(&new_verkey), None, None)
-                    .map_err(|err| println_err!("{}", err.message(Some(&pool_name))))?;
+            let pool = ctx.ensure_connected_pool()?;
 
-            set_author_agreement(ctx, &mut request)?;
-
-            let response_json = Ledger::sign_and_submit_request(&pool, &store, &did, &mut request)
-                .map_err(|err| match err {
-                    CliError::VdrError(ref vdr_err) => match vdr_err.kind() {
-                        VdrErrorKind::PoolTimeout => {
-                            println_err!("Transaction response has not been received");
-                            println_err!("Use command `did rotate-key resume=true` to complete");
-                        }
-                        _ => {
-                            println_err!("{}", err.message(Some(&pool_name)));
-                        }
-                    },
-                    _ => {
-                        println_err!("{}", err.message(Some(&pool_name)));
+            send_nym(&ctx, &pool, &store, &did, &new_verkey).map_err(|err| match err {
+                CliError::VdrError(ref vdr_err) => match vdr_err.kind() {
+                    VdrErrorKind::PoolTimeout => {
+                        println_err!("Transaction response has not been received");
+                        println_err!("Use command `did rotate-key resume=true` to complete");
                     }
-                })?;
-
-            let response: Response<serde_json::Value> =
-                serde_json::from_str::<Response<serde_json::Value>>(&response_json)
-                    .map_err(|err| println_err!("Invalid data has been received: {:?}", err))?;
-
-            handle_transaction_response(response)?;
+                    _ => {
+                        println_err!("{}", err.message(Some(&pool.name)));
+                    }
+                },
+                _ => {
+                    println_err!("{}", err.message(Some(&pool.name)));
+                }
+            })?;
         };
 
         Did::replace_keys_apply(&store, &did)
@@ -154,42 +135,24 @@ pub mod rotate_key_command {
     }
 }
 
-fn _get_current_verkey(
-    pool: &LocalPool,
-    pool_name: &str,
-    store: &AnyStore,
-    did: &DidValue,
-) -> Result<Option<String>, ()> {
-    //TODO: There nym is requested. Due to freshness issues response might be stale or outdated. Something should be done with it
-    let response_json = Ledger::build_get_nym_request(Some(pool), Some(did), did)
-        .and_then(|mut request| Ledger::sign_and_submit_request(pool, store, did, &mut request))
-        .map_err(|err| println_err!("{}", err.message(Some(pool_name))))?;
-    let response: Response<serde_json::Value> =
-        serde_json::from_str::<Response<serde_json::Value>>(&response_json)
-            .map_err(|err| println_err!("Invalid data has been received: {:?}", err))?;
-    let result = handle_transaction_response(response)?;
-    let data = serde_json::from_str::<serde_json::Value>(&result["data"].as_str().unwrap_or("{}"))
-        .map_err(|_| println_err!("Wrong data has been received"))?;
-    let verkey = data["verkey"].as_str().map(String::from);
-    Ok(verkey)
-}
-
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::{commands::ledger::tests::send_nym, tools::did::Did};
+    use crate::tools::did::Did;
 
     mod did_rotate_key {
         use super::*;
         use crate::{
-            did::tests::{get_did_info, new_did, use_did, DID_TRUSTEE, SEED_TRUSTEE},
-            pool::tests::{create_and_connect_pool, disconnect_and_delete_pool},
-            wallet::tests::{close_and_delete_wallet, create_and_open_wallet},
+            commands::{setup_with_wallet_and_pool, submit_retry, tear_down_with_wallet_and_pool},
+            did::tests::get_did_info,
+            ledger::tests::use_new_identity,
+            tools::ledger::Ledger,
         };
+        use indy_utils::did::DidValue;
 
         fn ensure_nym_written(ctx: &CommandContext, did: &str, verkey: &str) {
-            let pool = get_connected_pool(&ctx).unwrap();
-            let wallet = ensure_opened_wallet(ctx).unwrap();
+            let pool = ctx.get_connected_pool().unwrap();
+            let wallet = ctx.ensure_opened_wallet().unwrap();
             let did = DidValue(did.to_string());
             let mut request = Ledger::build_get_nym_request(Some(&pool), None, &did).unwrap();
             Ledger::sign_request(&wallet, &did, &mut request).unwrap();
@@ -215,22 +178,18 @@ pub mod tests {
         pub fn rotate_works() {
             let ctx = setup_with_wallet_and_pool();
 
-            new_did(&ctx, SEED_TRUSTEE);
-
-            let wallet = ensure_opened_wallet(&ctx).unwrap();
-            let (did, verkey) = Did::create(&wallet, None, None, None, None).unwrap();
-            use_did(&ctx, DID_TRUSTEE);
-            send_nym(&ctx, &did, &verkey, None);
+            let (did, verkey) = use_new_identity(&ctx);
             ensure_nym_written(&ctx, &did, &verkey);
-            use_did(&ctx, &did);
 
             let did_info = get_did_info(&ctx, &did);
             assert_eq!(did_info.verkey, verkey);
+
             {
                 let cmd = rotate_key_command::new();
                 let params = CommandParams::new();
                 cmd.execute(&ctx, &params).unwrap();
             }
+
             let did_info = get_did_info(&ctx, &did);
             assert_ne!(did_info.verkey, verkey);
 
@@ -239,26 +198,29 @@ pub mod tests {
 
         #[test]
         pub fn rotate_resume_works_when_ledger_updated() {
-            let ctx = setup();
+            let ctx = setup_with_wallet_and_pool();
 
-            let wallet = create_and_open_wallet(&ctx);
-            create_and_connect_pool(&ctx);
-            let pool = ensure_connected_pool_handle(&ctx).unwrap();
+            let (did, verkey) = use_new_identity(&ctx);
 
-            new_did(&ctx, SEED_TRUSTEE);
-
-            let (did, verkey) = Did::create(&wallet, None, None, None, None).unwrap();
-            use_did(&ctx, DID_TRUSTEE);
-            send_nym(&ctx, &did, &verkey, None);
-            use_did(&ctx, &did);
-
-            let new_verkey = Did::replace_keys_start(&wallet, &did, None).unwrap();
-            let did = DidValue(did.to_string());
-            let mut request =
-                Ledger::build_nym_request(Some(&pool), &did, &did, Some(&new_verkey), None, None)
-                    .unwrap();
-            Ledger::sign_and_submit_request(&pool, &wallet, &did, &mut request).unwrap();
-            ensure_nym_written(&ctx, &did, &new_verkey);
+            // start key rotation and update ledger
+            let new_verkey = {
+                let pool = ctx.ensure_connected_pool().unwrap();
+                let wallet = ctx.ensure_opened_wallet().unwrap();
+                let new_verkey = Did::replace_keys_start(&wallet, &did, None).unwrap();
+                let did = DidValue(did.to_string());
+                let mut request = Ledger::build_nym_request(
+                    Some(&pool),
+                    &did,
+                    &did,
+                    Some(&new_verkey),
+                    None,
+                    None,
+                )
+                .unwrap();
+                Ledger::sign_and_submit_request(&pool, &wallet, &did, &mut request).unwrap();
+                ensure_nym_written(&ctx, &did, &new_verkey);
+                new_verkey
+            };
 
             let did_info = get_did_info(&ctx, &did);
             assert_eq!(did_info.verkey, verkey);
@@ -273,76 +235,62 @@ pub mod tests {
             assert_eq!(did_info.verkey, new_verkey);
             assert_eq!(did_info.next_verkey, None);
 
-            close_and_delete_wallet(&ctx);
-            disconnect_and_delete_pool(&ctx);
-            tear_down();
+            tear_down_with_wallet_and_pool(&ctx);
         }
 
         #[test]
         pub fn rotate_resume_works_when_ledger_not_updated() {
-            let ctx = setup();
+            let ctx = setup_with_wallet_and_pool();
 
-            let wallet = create_and_open_wallet(&ctx);
-            create_and_connect_pool(&ctx);
+            let (did, verkey) = use_new_identity(&ctx);
 
-            new_did(&ctx, SEED_TRUSTEE);
-
-            let (did, verkey) = Did::create(&wallet, None, None, None, None).unwrap();
-            use_did(&ctx, DID_TRUSTEE);
-            send_nym(&ctx, &did, &verkey, None);
-            use_did(&ctx, &did);
-            ensure_nym_written(&ctx, &did, &verkey);
-
-            let new_verkey = Did::replace_keys_start(&wallet, &did, None).unwrap();
+            let new_verkey = {
+                let wallet = ctx.ensure_opened_wallet().unwrap();
+                Did::replace_keys_start(&wallet, &did, None).unwrap()
+            };
 
             let did_info = get_did_info(&ctx, &did);
             assert_eq!(did_info.verkey, verkey);
             assert_eq!(did_info.next_verkey.unwrap(), new_verkey);
+
             {
                 let cmd = rotate_key_command::new();
                 let mut params = CommandParams::new();
                 params.insert("resume", "true".to_string());
                 cmd.execute(&ctx, &params).unwrap();
             }
+
             let did_info = get_did_info(&ctx, &did);
             assert_eq!(did_info.verkey, new_verkey);
             assert_eq!(did_info.next_verkey, None);
 
-            close_and_delete_wallet(&ctx);
-            disconnect_and_delete_pool(&ctx);
-            tear_down();
+            tear_down_with_wallet_and_pool(&ctx);
         }
 
         #[test]
         pub fn rotate_resume_without_started_rotation_rejected() {
-            let ctx = setup();
+            let ctx = setup_with_wallet_and_pool();
 
-            let wallet = create_and_open_wallet(&ctx);
-            create_and_connect_pool(&ctx);
-
-            new_did(&ctx, SEED_TRUSTEE);
-
-            let (did, verkey) = Did::create(&wallet, None, None, None, None).unwrap();
-            use_did(&ctx, DID_TRUSTEE);
-            send_nym(&ctx, &did, &verkey, None);
-            use_did(&ctx, &did);
+            let (did, verkey) = use_new_identity(&ctx);
 
             let did_info = get_did_info(&ctx, &did);
             assert_eq!(did_info.verkey, verkey);
             assert_eq!(did_info.next_verkey, None);
+
             {
                 let cmd = rotate_key_command::new();
                 let mut params = CommandParams::new();
                 params.insert("resume", "true".to_string());
                 cmd.execute(&ctx, &params).unwrap_err();
             }
-            let did_info = get_did_info(&ctx, &did);
-            assert_eq!(did_info.verkey, verkey); // it is not changed.
-            assert_eq!(did_info.next_verkey, None);
 
-            close_and_delete_wallet(&ctx);
-            disconnect_and_delete_pool(&ctx);
-            tear_down();
+            {
+                let did_info = get_did_info(&ctx, &did);
+                assert_eq!(did_info.verkey, verkey); // it is not changed.
+                assert_eq!(did_info.next_verkey, None);
+            }
+
+            tear_down_with_wallet_and_pool(&ctx);
         }
 
         #[test]

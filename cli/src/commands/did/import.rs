@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::did::Did,
 };
 
@@ -43,9 +43,9 @@ pub mod import_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
+        let store = ctx.ensure_opened_wallet()?;
 
-        let path = get_str_param("file", params).map_err(error_err!())?;
+        let path = ParamParser::get_str_param("file", params)?;
 
         let data = read_file(path)
             .map_err(|_| println_err!("Unable to read DID import config from the provided file"))?;

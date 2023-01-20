@@ -5,7 +5,7 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
+    params_parser::ParamParser,
     tools::ledger::{Ledger, Response},
     utils::{file::read_file, table::print_list_table},
 };
@@ -53,17 +53,17 @@ pub mod taa_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let text = get_opt_empty_str_param("text", params).map_err(error_err!())?;
-        let file = get_opt_str_param("file", params).map_err(error_err!())?;
-        let version = get_str_param("version", params).map_err(error_err!())?;
+        let text = ParamParser::get_opt_empty_str_param("text", params)?;
+        let file = ParamParser::get_opt_str_param("file", params)?;
+        let version = ParamParser::get_str_param("version", params)?;
         let ratification_ts =
-            get_opt_number_param::<u64>("ratification-timestamp", params).map_err(error_err!())?;
+            ParamParser::get_opt_number_param::<u64>("ratification-timestamp", params)?;
         let retirement_ts =
-            get_opt_number_param::<u64>("retirement-timestamp", params).map_err(error_err!())?;
+            ParamParser::get_opt_number_param::<u64>("retirement-timestamp", params)?;
 
         let text: Option<String> = match (text, file) {
             (Some(text_), None) => Some(text_.to_string()),
@@ -85,14 +85,8 @@ pub mod taa_command {
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         handle_transaction_response(response).map(|result| {
             // TODO support multiply active TAA on the ledger IS-1441
@@ -132,9 +126,9 @@ pub mod taa_disable_all_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
         let mut request = Ledger::build_disable_all_txn_author_agreements_request(
             pool.as_deref(),
@@ -142,17 +136,11 @@ pub mod taa_disable_all_command {
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         handle_transaction_response(response).map(|_| {
-            set_transaction_author_info(ctx, None);
+            ctx.set_transaction_author_info(None);
             println_succ!("All Transaction Author Agreements on the Ledger have been disabled");
         })?;
 
@@ -181,14 +169,14 @@ pub mod aml_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let store = ensure_opened_wallet(&ctx)?;
-        let submitter_did = ensure_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let wallet = ctx.ensure_opened_wallet()?;
+        let submitter_did = ctx.ensure_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let aml = get_opt_str_param("aml", params).map_err(error_err!())?;
-        let file = get_opt_str_param("file", params).map_err(error_err!())?;
-        let version = get_str_param("version", params).map_err(error_err!())?;
-        let context = get_opt_str_param("context", params).map_err(error_err!())?;
+        let aml = ParamParser::get_opt_str_param("aml", params)?;
+        let file = ParamParser::get_opt_str_param("file", params)?;
+        let version = ParamParser::get_str_param("version", params)?;
+        let context = ParamParser::get_opt_str_param("context", params)?;
 
         let aml = match (aml, file) {
             (Some(aml_), None) => aml_.to_string(),
@@ -212,14 +200,8 @@ pub mod aml_command {
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response): (String, Response<JsonValue>) = send_write_request!(
-            ctx,
-            params,
-            &mut request,
-            &store,
-            &wallet_name,
-            &submitter_did
-        );
+        let (_, response): (String, Response<JsonValue>) =
+            send_write_request!(ctx, params, &mut request, &wallet, &submitter_did);
 
         handle_transaction_response(response).map(|result| {
             print_transaction_response(
@@ -257,21 +239,21 @@ pub mod get_acceptance_mechanisms_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let submitter_did = get_active_did(&ctx)?;
-        let pool = get_connected_pool(&ctx);
+        let submitter_did = ctx.get_active_did()?;
+        let pool = ctx.get_connected_pool();
 
-        let timestamp = get_opt_number_param::<u64>("timestamp", params).map_err(error_err!())?;
-        let version = get_opt_str_param("version", params).map_err(error_err!())?;
+        let timestamp = ParamParser::get_opt_number_param::<u64>("timestamp", params)?;
+        let version = ParamParser::get_opt_str_param("version", params)?;
 
         let request = Ledger::build_get_acceptance_mechanisms_request(
             pool.as_deref(),
-            submitter_did.as_ref(),
+            submitter_did.as_deref(),
             timestamp,
             version,
         )
         .map_err(|err| println_err!("{}", err.message(None)))?;
 
-        let (_, response) = send_read_request!(&ctx, params, &request, submitter_did.as_ref());
+        let (_, response) = send_read_request!(&ctx, params, &request);
 
         match handle_transaction_response(response) {
             Ok(result) => {
@@ -320,9 +302,12 @@ pub mod get_acceptance_mechanisms_command {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::ledger::{
-        nym_command,
-        tests::{create_new_did, use_trustee},
+    use crate::{
+        commands::{setup_with_wallet_and_pool, tear_down_with_wallet_and_pool},
+        ledger::{
+            nym_command,
+            tests::{create_new_did, use_trustee},
+        },
     };
 
     mod aml {

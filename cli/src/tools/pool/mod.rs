@@ -5,19 +5,22 @@
 */
 use crate::{
     error::{CliError, CliResult},
-    utils::{
-        futures::block_on,
-        pool_directory::{PoolConfig, PoolDirectory},
-    },
+    utils::futures::block_on,
 };
 use std::collections::HashMap;
 
+use directory::{PoolConfig, PoolDirectory};
 use indy_vdr::{
     config::PoolConfig as OpenPoolConfig,
     pool::{helpers::perform_refresh, LocalPool, Pool as PoolImpl, PoolBuilder, PoolTransactions},
 };
 
-pub struct Pool {}
+pub mod directory;
+
+pub struct Pool {
+    pub pool: LocalPool,
+    pub name: String,
+}
 
 impl Pool {
     pub fn create(name: &str, config: &PoolConfig) -> CliResult<()> {
@@ -28,7 +31,7 @@ impl Pool {
         name: &str,
         config: OpenPoolConfig,
         pre_ordered_nodes: Option<Vec<&str>>,
-    ) -> CliResult<LocalPool> {
+    ) -> CliResult<Pool> {
         let pool_transactions_file = PoolDirectory::read_pool_config(name)
             .map_err(|_| CliError::NotFound(format!("Pool \"{}\" does not exist.", name)))?
             .genesis_txn;
@@ -42,28 +45,38 @@ impl Pool {
 
         let pool_transactions = PoolTransactions::from_json_file(&pool_transactions_file)?;
 
-        PoolBuilder::from(config)
+        let pool = PoolBuilder::from(config)
             .transactions(pool_transactions)?
             .node_weights(weight_nodes)
-            .into_local()
-            .map_err(CliError::from)
+            .into_local()?;
+
+        Ok(Pool {
+            pool,
+            name: name.to_string(),
+        })
     }
 
-    pub fn refresh(name: &str, pool: &LocalPool) -> CliResult<Option<LocalPool>> {
-        let (transactions, _) = block_on(async move { perform_refresh(pool).await })?;
+    pub fn refresh(&self) -> CliResult<Option<Pool>> {
+        let (transactions, _) = block_on(async move { perform_refresh(&self.pool).await })?;
 
         match transactions {
             Some(new_transactions) if new_transactions.len() > 0 => {
-                let mut transactions = PoolTransactions::from(pool.get_merkle_tree());
+                let mut transactions = PoolTransactions::from(self.pool.get_merkle_tree());
                 transactions.extend_from_json(new_transactions)?;
 
-                let pool = PoolBuilder::from(pool.get_config().to_owned())
+                let pool = PoolBuilder::from(self.pool.get_config().to_owned())
                     .transactions(transactions)?
                     .into_local()?;
 
-                PoolDirectory::store_pool_transactions(name, &pool.get_json_transactions()?)?;
+                PoolDirectory::store_pool_transactions(
+                    &self.name,
+                    &self.pool.get_json_transactions()?,
+                )?;
 
-                Ok(Some(pool))
+                Ok(Some(Pool {
+                    pool,
+                    name: self.name.to_string(),
+                }))
             }
             _ => Ok(None),
         }
@@ -73,7 +86,7 @@ impl Pool {
         PoolDirectory::list_pools().map_err(CliError::from)
     }
 
-    pub fn close(_pool: &LocalPool) -> CliResult<()> {
+    pub fn close(&self) -> CliResult<()> {
         Ok(())
     }
 

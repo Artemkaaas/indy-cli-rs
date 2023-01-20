@@ -7,7 +7,7 @@ use crate::{
     command_executor::{
         Command, CommandContext, CommandMetadata, CommandParams, DynamicCompletionType,
     },
-    commands::*,
+    params_parser::ParamParser,
     tools::did::Did,
 };
 
@@ -29,9 +29,9 @@ pub mod set_metadata_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?}, params {:?}", ctx, params);
 
-        let wallet = ensure_opened_wallet(ctx)?;
-        let did = get_did_param("did", params).map_err(error_err!())?;
-        let metadata = get_str_param("metadata", params).map_err(error_err!())?;
+        let wallet = ctx.ensure_opened_wallet()?;
+        let did = ParamParser::get_did_param("did", params)?;
+        let metadata = ParamParser::get_str_param("metadata", params)?;
 
         Did::set_metadata(&wallet, &did, metadata)
             .map_err(|err| println_err!("{}", err.message(None)))?;

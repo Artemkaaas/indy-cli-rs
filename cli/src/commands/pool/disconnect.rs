@@ -5,7 +5,6 @@
 */
 use crate::{
     command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
-    commands::*,
     tools::pool::Pool,
 };
 
@@ -17,29 +16,29 @@ pub mod disconnect_command {
     fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
         trace!("execute >> ctx {:?} params {:?}", ctx, params);
 
-        let pool = ensure_connected_pool(&ctx)?;
-        let name = ensure_connected_pool_name(&ctx)?;
+        let pool = ctx.ensure_connected_pool()?;
 
-        close_pool(ctx, &pool, &name)?;
+        close_pool(ctx, &pool)?;
 
         trace!("execute <<");
         Ok(())
     }
 }
 
-pub fn close_pool(ctx: &CommandContext, pool: &LocalPool, name: &str) -> Result<(), ()> {
-    Pool::close(pool)
+pub fn close_pool(ctx: &CommandContext, pool: &Pool) -> Result<(), ()> {
+    pool.close()
         .map(|_| {
-            set_connected_pool(ctx, None);
-            set_transaction_author_info(ctx, None);
-            println_succ!("Pool \"{}\" has been disconnected", name)
+            ctx.reset_connected_pool();
+            ctx.set_transaction_author_info(None);
+            println_succ!("Pool \"{}\" has been disconnected", pool.name)
         })
-        .map_err(|err| println_err!("{}", err.message(Some(&name))))
+        .map_err(|err| println_err!("{}", err.message(Some(&pool.name))))
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::commands::{setup, tear_down};
 
     mod disconnect {
         use super::*;

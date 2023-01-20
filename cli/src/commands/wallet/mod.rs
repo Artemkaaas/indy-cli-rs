@@ -48,10 +48,8 @@ pub mod tests {
     use super::*;
     use crate::{
         command_executor::{CommandContext, CommandParams},
-        commands::ensure_opened_wallet,
         utils::environment::EnvironmentUtils,
     };
-    use aries_askar::any::AnyStore;
     use std::{path::PathBuf, rc::Rc};
 
     pub const WALLET: &str = "wallet";
@@ -76,7 +74,7 @@ pub mod tests {
         create_cmd.execute(&ctx, &params).unwrap();
     }
 
-    pub fn create_and_open_wallet(ctx: &CommandContext) -> Rc<AnyStore> {
+    pub fn create_and_open_wallet(ctx: &CommandContext) -> Rc<Wallet> {
         {
             let create_cmd = create_command::new();
             let mut params = CommandParams::new();
@@ -94,10 +92,10 @@ pub mod tests {
             cmd.execute(&ctx, &params).unwrap();
         }
 
-        ensure_opened_wallet(&ctx).unwrap()
+        ctx.ensure_opened_wallet().unwrap()
     }
 
-    pub fn open_wallet(ctx: &CommandContext) -> Rc<AnyStore> {
+    pub fn open_wallet(ctx: &CommandContext) -> Rc<Wallet> {
         {
             let cmd = open_command::new();
             let mut params = CommandParams::new();
@@ -107,7 +105,7 @@ pub mod tests {
             cmd.execute(&ctx, &params).unwrap();
         }
 
-        ensure_opened_wallet(&ctx).unwrap()
+        ctx.ensure_opened_wallet().unwrap()
     }
 
     pub fn close_and_delete_wallet(ctx: &CommandContext) {

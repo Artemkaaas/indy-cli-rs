@@ -5,25 +5,26 @@
 */
 use crate::{
     command_executor::CommandContext,
-    commands::*,
     error::CliResult,
     tools::ledger::{parse_transaction_response, Ledger, Response, ResponseType},
     utils::table::print_table,
 };
 
+use crate::{
+    error::CliError,
+    tools::{pool::Pool, wallet::Wallet},
+};
 use indy_utils::did::DidValue;
 use indy_vdr::pool::PreparedRequest;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 macro_rules! send_write_request {
-    ($ctx:expr, $params:expr, $request:expr, $wallet_handle:expr, $wallet_name:expr, $submitter_did:expr) => {{
-        let sign = get_opt_bool_param("sign", $params)
-            .map_err(error_err!())?
+    ($ctx:expr, $params:expr, $request:expr, $wallet:expr, $submitter_did:expr) => {{
+        let sign = ParamParser::get_opt_bool_param("sign", $params)?
             .unwrap_or(super::super::constants::SIGN_REQUEST);
-        let endorser = get_opt_did_param("endorser", $params).map_err(error_err!())?;
-        let mut send = get_opt_bool_param("send", $params)
-            .map_err(error_err!())?
+        let endorser = ParamParser::get_opt_did_param("endorser", $params)?;
+        let mut send = ParamParser::get_opt_bool_param("send", $params)?
             .unwrap_or(super::super::constants::SEND_REQUEST);
 
         match endorser {
@@ -37,35 +38,27 @@ macro_rules! send_write_request {
         };
 
         if sign {
-            Ledger::sign_request($wallet_handle, $submitter_did, $request).map_err(|err| {
+            Ledger::sign_request($wallet, $submitter_did, $request).map_err(|err| {
                 println_err!("{}", err.message(None));
             })?;
         };
 
-        send_request!(
-            $ctx,
-            $params,
-            $request,
-            Some($wallet_name),
-            Some($submitter_did),
-            send
-        )
+        send_request!($ctx, $params, $request, send)
     }};
 }
 
 macro_rules! send_read_request {
-    ($ctx:expr, $params:expr, $request:expr, $submitter_did:expr) => {{
-        let send = get_opt_bool_param("send", $params)
-            .map_err(error_err!())?
+    ($ctx:expr, $params:expr, $request:expr) => {{
+        let send = ParamParser::get_opt_bool_param("send", $params)?
             .unwrap_or(super::super::constants::SEND_REQUEST);
-        send_request!($ctx, $params, $request, None, $submitter_did, send)
+        send_request!($ctx, $params, $request, send)
     }};
 }
 
 macro_rules! send_request {
-    ($ctx:expr, $params:expr, $request:expr, $wallet_name:expr, $submitter_did:expr, $send:expr) => {{
+    ($ctx:expr, $params:expr, $request:expr, $send:expr) => {{
         if $send {
-            let pool = ensure_connected_pool($ctx)?;
+            let pool = $ctx.ensure_connected_pool()?;
             let response_json = Ledger::submit_request(&pool, $request).map_err(|err| {
                 println_err!("{}", err.message(None));
             })?;
@@ -78,7 +71,7 @@ macro_rules! send_request {
             let request_json = json!(&$request.req_json).to_string();
             println_succ!("Transaction has been created:");
             println!("     {:?}", request_json);
-            set_context_transaction($ctx, Some(request_json));
+            $ctx.set_context_transaction(Some(request_json));
             return Ok(());
         }
     }};
@@ -89,7 +82,7 @@ macro_rules! get_transaction_to_use {
         if let Some(txn_) = $param_txn {
             PreparedRequest::from_request_json(&txn_)
                 .map_err(|_| println_err!("Invalid formatted transaction provided."))?
-        } else if let Some(txn_) = get_context_transaction($ctx) {
+        } else if let Some(txn_) = $ctx.get_context_transaction() {
             println!("Transaction stored into context: {:?}.", txn_);
             println!("Would you like to use it? (y/n)");
 
@@ -139,8 +132,64 @@ pub fn handle_transaction_response(response: Response<JsonValue>) -> Result<Json
     }
 }
 
+pub fn send_nym(
+    ctx: &CommandContext,
+    pool: &Pool,
+    store: &Wallet,
+    did: &DidValue,
+    verkey: &str,
+) -> CliResult<JsonValue> {
+    let mut request = Ledger::build_nym_request(Some(&pool), did, did, Some(&verkey), None, None)?;
+
+    if let Some((text, version, acc_mech_type, time_of_acceptance)) =
+        ctx.get_transaction_author_info()
+    {
+        if acc_mech_type.is_empty() {
+            return Err(CliError::InvalidEntityState(
+                "Transaction author agreement Acceptance Mechanism isn't set.".to_string(),
+            ));
+        }
+
+        Ledger::append_txn_author_agreement_acceptance_to_request(
+            Some(&pool),
+            &mut request,
+            Some(&text),
+            Some(&version),
+            None,
+            &acc_mech_type,
+            time_of_acceptance,
+        )?;
+    };
+
+    let response_json = Ledger::sign_and_submit_request(&pool, &store, &did, &mut request)?;
+    let response: Response<serde_json::Value> =
+        serde_json::from_str::<Response<serde_json::Value>>(&response_json)?;
+    let response = handle_transaction_response(response)
+        .map_err(|_| CliError::InvalidInput("".to_string()))?;
+    Ok(response)
+}
+
+pub fn get_current_verkey(
+    pool: &Pool,
+    store: &Wallet,
+    did: &DidValue,
+) -> Result<Option<String>, ()> {
+    //TODO: There nym is requested. Due to freshness issues response might be stale or outdated. Something should be done with it
+    let response_json = Ledger::build_get_nym_request(Some(pool), Some(did), did)
+        .and_then(|mut request| Ledger::sign_and_submit_request(pool, store, did, &mut request))
+        .map_err(|err| println_err!("{}", err.message(Some(&pool.name))))?;
+    let response: Response<serde_json::Value> =
+        serde_json::from_str::<Response<serde_json::Value>>(&response_json)
+            .map_err(|err| println_err!("Invalid data has been received: {:?}", err))?;
+    let result = handle_transaction_response(response)?;
+    let data = serde_json::from_str::<serde_json::Value>(&result["data"].as_str().unwrap_or("{}"))
+        .map_err(|_| println_err!("Wrong data has been received"))?;
+    let verkey = data["verkey"].as_str().map(String::from);
+    Ok(verkey)
+}
+
 pub fn get_active_transaction_author_agreement(
-    pool: &LocalPool,
+    pool: &Pool,
 ) -> Result<Option<(String, String, Option<String>)>, ()> {
     let response = Ledger::build_get_txn_author_agreement_request(Some(pool), None, None)
         .and_then(|request| Ledger::submit_request(pool, &request))
@@ -165,8 +214,8 @@ pub fn get_active_transaction_author_agreement(
 }
 
 pub fn sign_and_submit_action(
-    store: &AnyStore,
-    pool: &LocalPool,
+    wallet: &Wallet,
+    pool: &Pool,
     submitter_did: &DidValue,
     request: &mut PreparedRequest,
     nodes: Option<Vec<&str>>,
@@ -177,7 +226,7 @@ pub fn sign_and_submit_action(
         None => None,
     };
 
-    Ledger::sign_request(store, submitter_did, request)?;
+    Ledger::sign_request(wallet, submitter_did, request)?;
     let replies =
         Ledger::submit_action(pool, &request, nodes.as_ref().map(String::as_ref), timeout)?;
 
@@ -190,10 +239,10 @@ pub fn sign_and_submit_action(
 }
 
 pub fn set_author_agreement(ctx: &CommandContext, request: &mut PreparedRequest) -> Result<(), ()> {
-    let pool = get_connected_pool(&ctx);
+    let pool = ctx.get_connected_pool();
 
     if let Some((text, version, acc_mech_type, time_of_acceptance)) =
-        get_transaction_author_info(&ctx)
+        ctx.get_transaction_author_info()
     {
         if acc_mech_type.is_empty() {
             println_err!("Transaction author agreement Acceptance Mechanism isn't set.");
