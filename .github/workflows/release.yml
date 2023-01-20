@@ -183,7 +183,7 @@ jobs:
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
           
-          if [[ -n "${{ needs.checks.outputs.existing_assets }}" ]]; then
+          if [ "${{ needs.checks.outputs.existing_assets }}" != '' ]; then
             asset_exists=${{contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}
           else
             asset_exists=false
