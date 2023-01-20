@@ -183,34 +183,28 @@ jobs:
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
           
-          if [ ! -n ${{ needs.checks.outputs.existing_assets }} ]; then
-            asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name) }}
-          else
-            asset_exists=false
-          fi
-          
-          echo "asset_exists=$asset_exists" >> $GITHUB_OUTPUT
+          echo "asset_exists=${{ needs.checks.outputs.existing_assets && contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name) }}" >> $GITHUB_OUTPUT
           echo "Asset already exists: $asset_exists"
         shell: bash
 
       - name: Build
-        if: ${{ steps.check_existing.outputs.asset_exists == 'false' && !matrix.use_cross }}
+        if: ${{ steps.check_existing.outputs.asset_exists != 'true' && !matrix.use_cross }}
         run: cargo build --target ${{ matrix.target }} --locked --release
 
       - name: Build (cross)
-        if: ${{ steps.check_existing.outputs.asset_exists == 'false' && matrix.use_cross }}
+        if: ${{ steps.check_existing.outputs.asset_exists != 'true' && matrix.use_cross }}
         run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
           cross build --target ${{ matrix.target }} --locked --release
 
       - name: Create release assets directory
-        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
+        if: ${{ steps.check_existing.outputs.asset_exists != 'true' }}
         run: |
           mkdir release-assets
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
       - name: Pack asset
-        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
+        if: ${{ steps.check_existing.outputs.asset_exists != 'true' }}
         uses: a7ul/tar-action@v1.1.2
         with:
           command: c
@@ -219,7 +213,7 @@ jobs:
           outPath: "indy-cli-rs.tar.gz"
 
       - name: Upload asset to GitHub
-        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
+        if: ${{ steps.check_existing.outputs.asset_exists != 'true' }}
         uses: svenstaro/upload-release-action@v2
         with:
           file: indy-cli-rs.tar.gz
