@@ -68,12 +68,13 @@ jobs:
 
   create_release:
     name: Create release
-    if: ${{ !needs.checks.outputs.existing_release_info }}
+    id: create_release
     runs-on: ubuntu-latest
     needs: checks
 
     steps:
-      - name: Create GitHub Release
+      - name: Create GitHub Release if needed
+        if: ${{ !needs.checks.outputs.existing_release_info }}
         uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,7 +87,7 @@ jobs:
     # Enable this when all dependencies are published
     if: ${{ false }}
     runs-on: ubuntu-latest
-    needs: [ checks ]
+    needs: [ checks, create_release ]
     defaults:
       run:
         working-directory: cli
@@ -131,7 +132,7 @@ jobs:
 
   publish_assets:
     name: Publish assets
-    needs: [ checks ]
+    needs: [ checks, create_release ]
     strategy:
       matrix:
         include:
