@@ -187,23 +187,23 @@ jobs:
         shell: bash
 
       - name: Build
-        if: ${{ !steps.check_existing.outputs.asset_exists && !matrix.use_cross }}
+        if: ${{ steps.check_existing.outputs.asset_exists == 'false' && !matrix.use_cross }}
         run: cargo build --target ${{ matrix.target }} --locked --release
 
       - name: Build (cross)
-        if: ${{ !steps.check_existing.outputs.asset_exists && matrix.use_cross }}
+        if: ${{ steps.check_existing.outputs.asset_exists == 'false' && matrix.use_cross }}
         run: |
           cargo install --bins --git https://github.com/rust-embedded/cross --tag v0.2.4 cross
           cross build --target ${{ matrix.target }} --locked --release
 
       - name: Create release assets directory
-        if: ${{ !steps.check_existing.outputs.asset_exists }}
+        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
         run: |
           mkdir release-assets
           cp target/${{ matrix.target }}/release/${{ matrix.artifact }} release-assets/
 
       - name: Pack asset
-        if: ${{ !steps.check_existing.outputs.asset_exists }}
+        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
         uses: a7ul/tar-action@v1.1.2
         with:
           command: c
@@ -212,7 +212,7 @@ jobs:
           outPath: "indy-cli-rs.tar.gz"
 
       - name: Upload asset to GitHub
-        if: ${{ !steps.check_existing.outputs.asset_exists }}
+        if: ${{ steps.check_existing.outputs.asset_exists == 'false' }}
         uses: svenstaro/upload-release-action@v2
         with:
           file: indy-cli-rs.tar.gz
