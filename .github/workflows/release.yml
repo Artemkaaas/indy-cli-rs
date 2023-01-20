@@ -16,7 +16,7 @@ jobs:
 
   checks:
     name: Check version & existing release
-    # if: github.ref == 'refs/heads/main'
+    #if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     outputs:
       current_version: ${{ steps.current_version.outputs.current_version }}
@@ -45,7 +45,7 @@ jobs:
           release_info="$(curl -s https://api.github.com/repos/${{ github.repository }}/releases \
               | jq '.[] | select(.name == "v${{ steps.current_version.outputs.current_version }}")')"
           
-          # Generate random delimiter as suggested in docs
+          # Generate random delimiter as recommended in docs
           # See https://docs.github.com/en/actions/using-workflows/workflow-commands-for-github-actions#multiline-strings
           delimiter="$(openssl rand -hex 8)"
           echo "release_info<<${delimiter}" >> $GITHUB_OUTPUT
@@ -69,7 +69,7 @@ jobs:
 
   create_release:
     name: Create release
-    if: ${{ !needs.checks.outputs.existing_release_info }} # && github.ref == 'refs/heads/main'
+    if: ${{ !needs.checks.outputs.existing_release_info }} #github.ref == 'refs/heads/main' &&
     runs-on: ubuntu-latest
     needs: checks
 
@@ -85,7 +85,7 @@ jobs:
   publish_crate:
     name: Publish crate
     # Enable this when all dependencies are published
-    if: ${{ false }} #github.ref == 'refs/heads/main'
+    if: ${{ false }} # github.ref == 'refs/heads/main' &&
     runs-on: ubuntu-latest
     needs: [ checks ]
     defaults:
@@ -178,12 +178,12 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check existing release asset
-        if: ${{ needs.checks.outputs.existing_assets }}
         id: check_existing
         run: |
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
-          echo "asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}" >> $GITHUB_OUTPUT
+          echo "asset_exists=${{ needs.checks.outputs.existing_assets && \
+            contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}" >> $GITHUB_OUTPUT
         shell: bash
 
       - name: Build
