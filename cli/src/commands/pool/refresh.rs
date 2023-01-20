@@ -1,0 +1,73 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
+use crate::{
+    command_executor::{Command, CommandContext, CommandMetadata, CommandParams},
+    commands::*,
+    tools::pool::Pool,
+};
+
+pub mod refresh_command {
+    use super::*;
+
+    command!(CommandMetadata::build(
+        "refresh",
+        "Refresh a local copy of a pool ledger and updates pool nodes connections."
+    )
+    .finalize());
+
+    fn execute(ctx: &CommandContext, params: &CommandParams) -> Result<(), ()> {
+        trace!("execute >> ctx {:?} params {:?}", ctx, params);
+
+        let pool = ensure_connected_pool(&ctx)?;
+        let pool_name = ensure_connected_pool_name(&ctx)?;
+
+        Pool::refresh(&pool_name, &pool)
+            .map_err(|err| println_err!("Unable to refresh pool. Reason: {}", err.message(None)))?;
+
+        println_succ!("Pool \"{}\"  has been refreshed", pool_name);
+
+        trace!("execute <<");
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    mod refresh {
+        use super::*;
+        use crate::pool::tests::{
+            create_and_connect_pool, create_pool, delete_pool, disconnect_and_delete_pool,
+        };
+
+        #[test]
+        pub fn refresh_works() {
+            let ctx = setup();
+            create_and_connect_pool(&ctx);
+            {
+                let cmd = refresh_command::new();
+                let params = CommandParams::new();
+                cmd.execute(&ctx, &params).unwrap();
+            }
+            disconnect_and_delete_pool(&ctx);
+            tear_down();
+        }
+
+        #[test]
+        pub fn refresh_works_for_not_opened() {
+            let ctx = setup();
+            create_pool(&ctx);
+            {
+                let cmd = refresh_command::new();
+                let params = CommandParams::new();
+                cmd.execute(&ctx, &params).unwrap_err();
+            }
+            delete_pool(&ctx);
+            tear_down();
+        }
+    }
+}

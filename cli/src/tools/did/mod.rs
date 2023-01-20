@@ -1,21 +1,26 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
+pub mod constants;
+pub mod key;
+pub mod seed;
+
 use crate::{
     error::{CliError, CliResult},
     utils::futures::block_on,
 };
 
-use aries_askar::{
-    any::AnyStore,
-    kms::{KeyAlg, LocalKey},
-    Entry, EntryTag,
+use aries_askar::{any::AnyStore, Entry, EntryTag};
+use indy_utils::{base58, did::DidValue, keys::EncodedVerKey, Qualifiable};
+
+use self::{
+    constants::{CATEGORY_DID, KEY_TYPE},
+    key::Key,
 };
-use hex::FromHex;
-use indy_utils::{base58, base64, did::DidValue, keys::EncodedVerKey, Qualifiable};
 
 pub struct Did {}
-
-const CATEGORY_DID: &'static str = "did";
-const KEY_TYPE: &'static str = "ed25519";
-const SEED_BYTES: usize = 32;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DidInfo {
@@ -28,7 +33,7 @@ pub struct DidInfo {
 }
 
 impl Did {
-    pub fn new(
+    pub fn create(
         store: &AnyStore,
         did: Option<&str>,
         seed: Option<&str>,
@@ -36,15 +41,16 @@ impl Did {
         method: Option<&str>,
     ) -> CliResult<(String, String)> {
         block_on(async move {
-            let (keypair, verkey) = Did::create_key(store, seed, metadata).await?;
+            let key = Key::create(store, seed, metadata).await?;
 
-            let public_key = keypair.to_public_bytes()?;
+            let verkey = key.verkey()?;
+            let public_key = key.value().to_public_bytes()?;
             let mut did = match did {
                 Some(did) => did.to_string(),
                 None => base58::encode(&public_key[0..16]),
             };
 
-            let existing_did = Self::fetch_did(store, &did, false).await?;
+            let existing_did = Self::fetch_record(store, &did, false).await?;
             if existing_did.is_some() {
                 return Err(CliError::Duplicate(format!(
                     "DID already exits in the wallet"
@@ -72,7 +78,7 @@ impl Did {
                 next_verkey: None,
             };
 
-            Self::store_did(store, &did_info, Some(&tags), true).await?;
+            Self::store(store, &did_info, Some(&tags), true).await?;
 
             Ok((did, verkey))
         })
@@ -84,16 +90,18 @@ impl Did {
         seed: Option<&str>,
     ) -> CliResult<String> {
         block_on(async move {
-            let (did_entry, mut did_info) =
-                Self::fetch_did(store, &did, true).await?.ok_or_else(|| {
+            let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
+                .await?
+                .ok_or_else(|| {
                     CliError::NotFound(format!("DID {} does not exits in the wallet.", did))
                 })?;
 
-            let (_, verkey) = Did::create_key(store, seed, None).await?;
+            let key = Key::create(store, seed, None).await?;
+            let verkey = key.verkey()?;
 
             did_info.next_verkey = Some(verkey.clone());
 
-            Self::store_did(store, &did_info, Some(&did_entry.tags), false).await?;
+            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
 
             Ok(verkey)
         })
@@ -101,8 +109,9 @@ impl Did {
 
     pub fn replace_keys_apply(store: &AnyStore, did: &str) -> CliResult<()> {
         block_on(async move {
-            let (did_entry, mut did_info) =
-                Self::fetch_did(store, &did, true).await?.ok_or_else(|| {
+            let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
+                .await?
+                .ok_or_else(|| {
                     CliError::NotFound(format!("DID {} does not exits in the wallet.", did))
                 })?;
 
@@ -113,7 +122,7 @@ impl Did {
             did_info.verkey = next_verkey;
             did_info.next_verkey = None;
 
-            Self::store_did(store, &did_info, Some(&did_entry.tags), false).await?;
+            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
 
             Ok(())
         })
@@ -121,32 +130,32 @@ impl Did {
 
     pub fn set_metadata(store: &AnyStore, did: &str, metadata: &str) -> CliResult<()> {
         block_on(async move {
-            let (did_entry, mut did_info) =
-                Self::fetch_did(store, &did, true).await?.ok_or_else(|| {
-                    CliError::NotFound(format!("DID {} does not exits in the wallet.", did))
-                })?;
-
-            did_info.metadata = Some(metadata.to_string());
-
-            Self::store_did(store, &did_info, Some(&did_entry.tags), false).await?;
-
-            Ok(())
-        })
-    }
-
-    pub fn get_did_with_meta(store: &AnyStore, did: &DidValue) -> CliResult<DidInfo> {
-        block_on(async move {
-            let (_, did_info) = Self::fetch_did(store, &did.to_string(), true)
+            let (did_entry, mut did_info) = Self::fetch_record(store, &did, true)
                 .await?
                 .ok_or_else(|| {
                     CliError::NotFound(format!("DID {} does not exits in the wallet.", did))
                 })?;
 
-            Ok(did_info)
+            did_info.metadata = Some(metadata.to_string());
+
+            Self::store(store, &did_info, Some(&did_entry.tags), false).await?;
+
+            Ok(())
         })
     }
 
-    pub fn list_dids_with_meta(store: &AnyStore) -> CliResult<Vec<DidInfo>> {
+    pub fn get(store: &AnyStore, did: &DidValue) -> CliResult<DidInfo> {
+        block_on(async move {
+            Self::fetch_record(store, &did.to_string(), true)
+                .await?
+                .map(|(_, did_info)| did_info)
+                .ok_or_else(|| {
+                    CliError::NotFound(format!("DID {} does not exits in the wallet.", did))
+                })
+        })
+    }
+
+    pub fn list(store: &AnyStore) -> CliResult<Vec<DidInfo>> {
         block_on(async move {
             let mut session = store.session(None).await?;
 
@@ -166,9 +175,9 @@ impl Did {
             .map_err(CliError::from)
     }
 
-    pub fn qualify_did(store: &AnyStore, did: &DidValue, method: &str) -> CliResult<String> {
+    pub fn qualify(store: &AnyStore, did: &DidValue, method: &str) -> CliResult<String> {
         block_on(async {
-            let (entry, did_info) = Self::fetch_did(store, &did.to_string(), true)
+            let (entry, did_info) = Self::fetch_record(store, &did.to_string(), true)
                 .await?
                 .ok_or_else(|| {
                     CliError::NotFound(format!("DID {} does not exits in the wallet!", did))
@@ -179,50 +188,29 @@ impl Did {
                 .map(|did| did.to_string())
                 .map_err(|_| CliError::InvalidInput(format!("Invalid DID {} provided.", did)))?;
 
-            Self::remove_did(store, &did.to_string()).await?;
+            Self::remove(store, &did.to_string()).await?;
 
             let did_info = DidInfo {
                 did: qualified_did.clone(),
                 ..did_info
             };
-            Self::store_did(store, &did_info, Some(&entry.tags), true).await?;
+            Self::store(store, &did_info, Some(&entry.tags), true).await?;
 
             Ok(qualified_did)
         })
     }
 
     pub async fn sign(store: &AnyStore, did: &str, bytes: &[u8]) -> CliResult<Vec<u8>> {
-        Did::load_key(store, did)
+        let (_, did_info) = Self::fetch_record(store, &did, true)
             .await?
-            .sign_message(bytes, None)
-            .map_err(CliError::from)
+            .ok_or_else(|| {
+                CliError::NotFound(format!("DID {} does not exits in the wallet!", did))
+            })?;
+
+        Key::sign(store, &did_info.verkey, bytes).await
     }
 
-    async fn create_key(
-        store: &AnyStore,
-        seed: Option<&str>,
-        metadata: Option<&str>,
-    ) -> CliResult<(LocalKey, String)> {
-        let keypair = match seed {
-            Some(seed) => {
-                let seed_bytes = Self::convert_seed(seed)?;
-                LocalKey::from_secret_bytes(KeyAlg::Ed25519, seed_bytes.as_slice())?
-            }
-            None => LocalKey::generate(KeyAlg::Ed25519, false)?,
-        };
-
-        let public_key = keypair.to_public_bytes()?;
-        let verkey = base58::encode(public_key);
-
-        let mut session = store.session(None).await?;
-        session
-            .insert_key(&verkey, &keypair, metadata, None, None)
-            .await?;
-
-        Ok((keypair, verkey))
-    }
-
-    async fn store_did(
+    async fn store(
         store: &AnyStore,
         did: &DidInfo,
         tags: Option<&[EntryTag]>,
@@ -245,7 +233,7 @@ impl Did {
         }
     }
 
-    async fn remove_did(store: &AnyStore, name: &str) -> CliResult<()> {
+    async fn remove(store: &AnyStore, name: &str) -> CliResult<()> {
         let mut session = store.session(None).await?;
         session
             .remove(CATEGORY_DID, name)
@@ -253,7 +241,7 @@ impl Did {
             .map_err(CliError::from)
     }
 
-    async fn fetch_did(
+    async fn fetch_record(
         store: &AnyStore,
         name: &str,
         for_update: bool,
@@ -266,53 +254,6 @@ impl Did {
                 Ok(Some((entry, did_info)))
             }
             None => Ok(None),
-        }
-    }
-
-    async fn load_key(store: &AnyStore, did: &str) -> CliResult<LocalKey> {
-        let mut session = store.session(None).await?;
-
-        let (_, did_info) = Self::fetch_did(store, &did, true).await?.ok_or_else(|| {
-            CliError::NotFound(format!("DID {} does not exits in the wallet!", did))
-        })?;
-
-        session
-            .fetch_key(&did_info.verkey, false)
-            .await?
-            .ok_or_else(|| {
-                CliError::NotFound(format!("Key for DID {} does not exits in the wallet!", did))
-            })?
-            .load_local_key()
-            .map_err(CliError::from)
-    }
-
-    fn convert_seed(seed: &str) -> CliResult<Vec<u8>> {
-        if seed.as_bytes().len() == SEED_BYTES {
-            // is acceptable seed length
-            Ok(seed.as_bytes().to_vec())
-        } else if seed.ends_with('=') {
-            // is base64 string
-            let decoded = base64::decode(&seed)
-                .map_err(|_| CliError::InvalidInput(format!("Invalid seed provided.")))?;
-            if decoded.len() == SEED_BYTES {
-                Ok(decoded)
-            } else {
-                Err(CliError::InvalidInput(format!(
-                    "Provided invalid base64 encoded `seed`. \
-                                   The number of bytes must be {} ",
-                    SEED_BYTES
-                )))
-            }
-        } else if seed.as_bytes().len() == SEED_BYTES * 2 {
-            // is hex string
-            Vec::from_hex(seed).map_err(|_| CliError::InvalidInput(format!("Seed is invalid hex")))
-        } else {
-            Err(CliError::InvalidInput(format!(
-                "Provided invalid `seed`. It can be either \
-                               {} bytes string or base64 string or {} bytes HEX string",
-                SEED_BYTES,
-                SEED_BYTES * 2
-            )))
         }
     }
 }
