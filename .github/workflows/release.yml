@@ -114,7 +114,7 @@ jobs:
         shell: bash
 
       - name: Upload crate to GitHub
-        if: ${{ !contains(fromJSON(needs.checks.outputs.existing_assets), steps.build_crate.outputs.asset_name)}}
+        if: ${{ !needs.checks.outputs.existing_assets || !contains(fromJSON(needs.checks.outputs.existing_assets), steps.build_crate.outputs.asset_name)}}
         uses: svenstaro/upload-release-action@v2
         with:
           file: target/package/${{ steps.build_crate.outputs.asset_name }}
@@ -183,8 +183,8 @@ jobs:
           # GitHub actions do not support skipping subsequent job steps (see https://github.com/actions/runner/issues/662)
           # So here we're using output value with separate conditions for every subsequent step
           
-          if [ ${{ needs.checks.outputs.existing_assets }} != '' ]; then
-            asset_exists=${{contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name)}}
+          if [ ! -n ${{ needs.checks.outputs.existing_assets }} ]; then
+            asset_exists=${{ contains(fromJSON(needs.checks.outputs.existing_assets), env.asset_name) }}
           else
             asset_exists=false
           fi
