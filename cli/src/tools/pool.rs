@@ -1,8 +1,13 @@
+/*
+    Copyright 2023 DSR Corporation, Denver, Colorado.
+    https://www.dsr-corporation.com
+    SPDX-License-Identifier: Apache-2.0
+*/
 use crate::{
     error::{CliError, CliResult},
     utils::{
         futures::block_on,
-        pool_config::{Config, PoolConfig},
+        pool_directory::{PoolConfig, PoolDirectory},
     },
 };
 use std::collections::HashMap;
@@ -15,8 +20,8 @@ use indy_vdr::{
 pub struct Pool {}
 
 impl Pool {
-    pub fn create_config(name: &str, config: &Config) -> CliResult<()> {
-        PoolConfig::store(name, config).map_err(CliError::from)
+    pub fn create(name: &str, config: &PoolConfig) -> CliResult<()> {
+        PoolDirectory::store_pool_config(name, config).map_err(CliError::from)
     }
 
     pub fn open(
@@ -24,7 +29,7 @@ impl Pool {
         config: OpenPoolConfig,
         pre_ordered_nodes: Option<Vec<&str>>,
     ) -> CliResult<LocalPool> {
-        let pool_transactions_file = PoolConfig::read(name)
+        let pool_transactions_file = PoolDirectory::read_pool_config(name)
             .map_err(|_| CliError::NotFound(format!("Pool \"{}\" does not exist.", name)))?
             .genesis_txn;
 
@@ -56,7 +61,7 @@ impl Pool {
                     .transactions(transactions)?
                     .into_local()?;
 
-                PoolConfig::write_transactions(name, &pool.get_json_transactions()?)?;
+                PoolDirectory::store_pool_transactions(name, &pool.get_json_transactions()?)?;
 
                 Ok(Some(pool))
             }
@@ -65,7 +70,7 @@ impl Pool {
     }
 
     pub fn list() -> CliResult<String> {
-        PoolConfig::list().map_err(CliError::from)
+        PoolDirectory::list_pools().map_err(CliError::from)
     }
 
     pub fn close(_pool: &LocalPool) -> CliResult<()> {
@@ -73,6 +78,6 @@ impl Pool {
     }
 
     pub fn delete(name: &str) -> CliResult<()> {
-        PoolConfig::delete(name).map_err(CliError::from)
+        PoolDirectory::delete_pool_config(name).map_err(CliError::from)
     }
 }
